@@ -4,7 +4,7 @@
 
 use eframe::egui::{self, RichText};
 
-use crate::backend::{self, Backend, BackendEvent, Launcher};
+use crate::backend::{self, Backend, BackendEvent, Launcher, Link};
 use crate::boot::BootClip;
 use crate::bottom_bar;
 use crate::chat_view::ChatView;
@@ -42,6 +42,11 @@ pub struct Options {
     /// `--screenshot <png>` of minerve-gui: save a picture of the window and exit.
     pub screenshot: Option<std::path::PathBuf>,
     pub screenshot_after: std::time::Duration,
+    /// No boot clip: a view put back on a chat that is already going.
+    pub skip_boot: bool,
+    /// One pane of an app among others: the box takes the keyboard when clicked rather than
+    /// whenever nothing has it.
+    pub embedded: bool,
 }
 
 /// Each view in a process gets its own panel ids.
@@ -49,6 +54,11 @@ static NEXT_VIEW: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsiz
 
 pub struct MinerveView {
     id: egui::Id,
+    /// Talking to the host's minerve (`attached`): it cannot be restarted from here.
+    attached: bool,
+    /// Where minerve works, as its `hello` said: the bar's left side.
+    cwd: Option<std::path::PathBuf>,
+    colors: theme::Colors,
     args: Options,
     backend: Option<Backend>,
     /// minerve is starting on another thread (up to 10 s), so the window stays responsive.
@@ -93,13 +103,33 @@ pub struct MinerveView {
 }
 
 impl MinerveView {
+    /// Talks to a minerve the host app runs (`moon` runs `__minerve --serve` for its tasks), over
+    /// `link`. Nothing is started, and nothing is ended when the view goes: the host owns it.
+    /// `options.launcher` is not used.
+    pub fn attached(ctx: &egui::Context, link: Link, options: Options) -> Self {
+        let mut view = Self::new_unstarted(ctx, options);
+        view.attached = true;
+        view.status.clear();
+        view.backend = Some(Backend::attach(link, ctx.clone()));
+        view
+    }
+
     /// Starts minerve in the background; `show` draws the view. Leaves the app's style alone:
     /// minerve-gui calls `theme::apply` for the whole window.
     pub fn new(ctx: &egui::Context, args: Options) -> Self {
+        let mut view = Self::new_unstarted(ctx, args);
+        view.start_backend(ctx);
+        view
+    }
+
+    fn new_unstarted(ctx: &egui::Context, args: Options) -> Self {
         // The boot clip is for fresh sessions only, like the TUI's. It starts when minerve sends it.
-        let skip_boot = args.resume.is_some() || std::env::var_os("MINERVE_NO_BOOT").is_some();
+        let skip_boot = args.skip_boot || args.resume.is_some() || std::env::var_os("MINERVE_NO_BOOT").is_some();
         let screenshot = args.screenshot.clone().map(|path| Screenshot::new(path, args.screenshot_after));
         let mut app = Self {
+            attached: false,
+            cwd: None,
+            colors: theme::Colors::default(),
             id: egui::Id::new(("minerve-view", NEXT_VIEW.fetch_add(1, std::sync::atomic::Ordering::Relaxed))),
             args,
             backend: None,
@@ -130,7 +160,8 @@ impl MinerveView {
             input: InputBox::new(),
             screenshot,
         };
-        app.start_backend(ctx);
+        app.input.id = app.id.with("message input");
+        app.input.grabs_focus = !app.args.embedded;
         app.startup_submit = app.args.submit.clone();
         if let Some(text) = app.args.prefill.clone() {
             app.input.text = text;
@@ -221,7 +252,10 @@ impl MinerveView {
                      Install matching versions of both."
                 ));
             }
-            Event::Hello { minerve_version, features, .. } => {
+            Event::Hello { minerve_version, features, cwd, .. } => {
+                if !cwd.is_empty() {
+                    self.cwd = Some(std::path::PathBuf::from(cwd));
+                }
                 if !features.iter().any(|feature| feature == "serve") {
                     self.error = Some(format!(
                         "this minerve ({minerve_version}) is too old for minerve-gui: update minerve."
@@ -426,7 +460,18 @@ impl MinerveView {
         }
     }
 
-    fn handle_keys(&mut self, ctx: &egui::Context) {
+    /// The view's keys, when they are meant for it: its box has the keyboard, or the pointer is
+    /// over it. An app's other panes have their own Esc.
+    fn handle_keys(&mut self, ctx: &egui::Context, view_rect: egui::Rect) {
+        let focused = ctx.memory(|memory| memory.has_focus(self.input.id));
+        let hovered = ctx.pointer_hover_pos().is_some_and(|pos| view_rect.contains(pos));
+        if !(focused || hovered || self.input.grabs_focus) {
+            return;
+        }
+        // Embedded: a click anywhere in the view gives its box the keyboard.
+        if !self.input.grabs_focus && hovered && ctx.input(|input| input.pointer.any_pressed()) {
+            ctx.memory_mut(|memory| memory.request_focus(self.input.id));
+        }
         let (escape, tools, any_key) = ctx.input(|input| {
             (
                 input.key_pressed(egui::Key::Escape),
@@ -453,13 +498,16 @@ impl MinerveView {
     fn show_error(&mut self, ui: &mut egui::Ui, error: &str) {
         ui.vertical_centered(|ui| {
             ui.add_space((ui.available_height() / 3.0).max(20.0));
-            ui.label(RichText::new("minerve is not running").color(theme::MAGENTA).strong());
+            ui.label(RichText::new("minerve is not running").color(theme::c().magenta).strong());
             ui.add_space(theme::FONT_SIZE);
             ui.label(error);
             ui.add_space(theme::FONT_SIZE);
-            ui.label(RichText::new(format!("log: {}", backend::log_path().display())).color(theme::DARK_GRAY));
+            if !self.attached {
+                ui.label(RichText::new(format!("log: {}", backend::log_path().display())).color(theme::c().dark_gray));
+            }
             ui.add_space(theme::FONT_SIZE);
-            if ui.button(" Restart minerve ").clicked() {
+            // The host's minerve is started again the host's way (moon: the card's resume).
+            if !self.attached && ui.button(" Restart minerve ").clicked() {
                 self.start_backend(&ui.ctx().clone());
             }
         });
@@ -467,14 +515,41 @@ impl MinerveView {
 }
 
 impl MinerveView {
+    /// What is typed in the message box.
+    pub fn draft(&self) -> &str {
+        &self.input.text
+    }
+
+    /// Whether minerve went away or could not be reached: the view says why.
+    pub fn has_failed(&self) -> bool {
+        self.error.is_some()
+    }
+
+    /// Whether minerve is up and answering: it said hello and has not gone away.
+    pub fn is_connected(&self) -> bool {
+        self.backend.is_some() && !self.features.is_empty() && self.error.is_none()
+    }
+
+    /// The session minerve is in, once it said: what `Options::resume` takes to come back to it.
+    pub fn session_id(&self) -> Option<&str> {
+        self.session_id.as_deref()
+    }
+
+    /// The colors to draw with from the next frame: an embedding app's palette, which it can
+    /// hand again on every frame (a light/dark switch).
+    pub fn set_colors(&mut self, colors: theme::Colors) {
+        self.colors = colors;
+    }
+
     /// Draws the view in all of `ui`, styled like minerve whatever the app's style is.
     pub fn show(&mut self, ui: &mut egui::Ui) {
         let ctx = &ui.ctx().clone();
+        theme::set(self.colors);
         theme::style(ui.style_mut());
         let view_rect = ui.max_rect();
-        ui.painter().rect_filled(view_rect, 0.0, theme::BACKGROUND);
+        ui.painter().rect_filled(view_rect, 0.0, theme::c().background);
         self.drain_events();
-        self.handle_keys(ctx);
+        self.handle_keys(ctx, view_rect);
         if let Some(screenshot) = self.screenshot.as_mut() {
             screenshot.tick(ctx);
         }
@@ -482,22 +557,31 @@ impl MinerveView {
             self.boot = None;
         }
         let panel = |top: i8, bottom: i8| {
-            egui::Frame::NONE.fill(theme::BACKGROUND).inner_margin(egui::Margin { left: theme::PANEL_MARGIN, right: theme::PANEL_MARGIN, top, bottom })
+            egui::Frame::NONE.fill(theme::c().background).inner_margin(egui::Margin { left: theme::PANEL_MARGIN, right: theme::PANEL_MARGIN, top, bottom })
         };
-        let no_frame = egui::Frame::NONE.fill(theme::BACKGROUND).inner_margin(theme::CHAT_MARGIN);
+        let no_frame = egui::Frame::NONE.fill(theme::c().background).inner_margin(theme::CHAT_MARGIN);
 
         egui::Panel::bottom(self.id.with("status_bar"))
-            .frame(egui::Frame::NONE.fill(theme::BAR).inner_margin(egui::Margin::symmetric(theme::PANEL_MARGIN, 5)))
+            .frame(egui::Frame::NONE.fill(theme::c().bar).inner_margin(egui::Margin::symmetric(theme::PANEL_MARGIN, 5)))
             .show_separator_line(false)
             .show(ui, |ui| {
+                let usage = if self.usage.is_empty() {
+                    egui::text::LayoutJob::simple_singleline("no turns yet".into(), theme::small(), theme::c().dim)
+                } else {
+                    bottom_bar::usage_job(&self.usage)
+                };
+                let usage_width = ui.fonts_mut(|fonts| fonts.layout_job(usage.clone()).size().x);
+                let cwd = bottom_bar::tilde_cwd(self.cwd.as_deref().or(self.args.launcher.workdir.as_deref()));
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(bottom_bar::tilde_cwd()).font(theme::small()).color(theme::DARK_GRAY));
+                    // The usage keeps its room; the folder has what is left, cut short.
+                    let room = ui.available_width() - usage_width - 16.0;
+                    if room > 40.0 {
+                        ui.allocate_ui(egui::vec2(room, ui.available_height()), |ui| {
+                            ui.add(egui::Label::new(RichText::new(cwd).font(theme::small()).color(theme::c().dark_gray)).truncate());
+                        });
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if self.usage.is_empty() {
-                            ui.label(RichText::new("no turns yet").font(theme::small()).color(theme::DIM));
-                        } else {
-                            ui.label(bottom_bar::usage_job(&self.usage));
-                        }
+                        ui.label(usage);
                     });
                 });
             });
@@ -532,11 +616,11 @@ impl MinerveView {
                 ctx.request_repaint_after(std::time::Duration::from_millis(125));
                 let status = if self.status.is_empty() { "working..." } else { &self.status };
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("{} {status}", SPINNER[frame])).font(theme::small()).color(theme::MAGENTA));
-                    ui.label(RichText::new("  ·  esc to stop").font(theme::small()).color(theme::DARK_GRAY));
+                    ui.label(RichText::new(format!("{} {status}", SPINNER[frame])).font(theme::small()).color(theme::c().magenta));
+                    ui.label(RichText::new("  ·  esc to stop").font(theme::small()).color(theme::c().dark_gray));
                 });
             } else {
-                ui.label(RichText::new(&self.status).font(theme::small()).color(theme::MAGENTA));
+                ui.label(RichText::new(&self.status).font(theme::small()).color(theme::c().magenta));
             }
         });
 
@@ -562,7 +646,9 @@ impl MinerveView {
             }
         });
         if self.modal.is_none() && self.toy.is_none() {
-            slash::show_menu(ctx, &self.input.text, self.input.rect);
+            if let Some(name) = slash::show_menu(ctx, self.id.with("slash menu"), &self.input.text, self.input.rect) {
+                self.input.set_text(ctx, name);
+            }
         }
         self.run_modal(ctx);
         if let Some(text) = submitted {

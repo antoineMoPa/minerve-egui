@@ -3,31 +3,84 @@
 
 use eframe::egui::{self, Color32, FontFamily, FontId, Stroke, TextStyle};
 
-pub const GREEN: Color32 = Color32::from_rgb(0x4e, 0xc9, 0x6a);
-pub const CYAN: Color32 = Color32::from_rgb(0x3d, 0xc8, 0xd8);
-pub const MAGENTA: Color32 = Color32::from_rgb(0xd0, 0x6a, 0xd8);
-pub const GRAY: Color32 = Color32::from_rgb(0xb0, 0xb4, 0xb8);
-pub const DARK_GRAY: Color32 = Color32::from_rgb(0x7a, 0x83, 0x8a);
-/// Arrows and other marks that should barely show.
-pub const DIM: Color32 = Color32::from_rgb(0x4f, 0x58, 0x5e);
-/// Separators between the parts of a status line.
-pub const SEP: Color32 = Color32::from_rgb(0x3d, 0x46, 0x4c);
-/// The thin line above the usage summary.
-pub const HAIRLINE: Color32 = Color32::from_rgb(0x1d, 0x25, 0x2a);
-/// Fill of the message box, a step above the background.
-pub const SURFACE: Color32 = Color32::from_rgb(0x13, 0x1a, 0x1e);
-/// The tinted status bar along the bottom edge; the TUI's top bar uses the same color.
-pub const BAR: Color32 = Color32::from_rgb(31, 42, 48);
-/// The queued shell output block.
-pub const YELLOW: Color32 = Color32::from_rgb(0xe0, 0xb8, 0x4a);
-/// Names of tools and the keys in the hint line.
-pub const NAME: Color32 = Color32::from_rgb(0xa9, 0xb1, 0xb6);
-const PROSE: Color32 = Color32::from_rgb(0xc9, 0xcf, 0xd3);
-const CODE_BACKGROUND: Color32 = Color32::from_rgb(0x1d, 0x27, 0x2c);
-pub const WHITE: Color32 = Color32::WHITE;
-/// Window and panel background.
-pub const BACKGROUND: Color32 = Color32::from_rgb(0x0f, 0x14, 0x17);
-const SELECTION: Color32 = Color32::from_rgb(0x1d, 0x4a, 0x52);
+/// The colors of the view. `Colors::default()` is the TUI's dark look; an app that embeds the
+/// view hands it its own (`MinerveView::set_colors`) so minerve sits in its palette.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Colors {
+    /// Dark widgets (egui's dark visuals) or light ones.
+    pub dark: bool,
+    /// Window and panel background.
+    pub background: Color32,
+    /// Fill of the message box, a step off the background.
+    pub surface: Color32,
+    /// The tinted status bar along the bottom edge.
+    pub bar: Color32,
+    /// The faintest lines.
+    pub hairline: Color32,
+    /// Separators between the parts of a status line.
+    pub sep: Color32,
+    /// Arrows and other marks that should barely show.
+    pub dim: Color32,
+    /// Labels: dimmer than what they label.
+    pub dark_gray: Color32,
+    /// Secondary text and values.
+    pub gray: Color32,
+    /// Names of tools.
+    pub name: Color32,
+    /// The chat's text.
+    pub prose: Color32,
+    /// What stands out most: the cost, a pressed widget.
+    pub bright: Color32,
+    pub code_background: Color32,
+    pub selection: Color32,
+    /// The frame of the message box, the user's name, links: cyan in the TUI.
+    pub accent: Color32,
+    /// Status and errors.
+    pub magenta: Color32,
+    pub green: Color32,
+    /// The queued shell output block.
+    pub yellow: Color32,
+}
+
+impl Default for Colors {
+    fn default() -> Self {
+        Self {
+            dark: true,
+            background: Color32::from_rgb(0x0f, 0x14, 0x17),
+            surface: Color32::from_rgb(0x13, 0x1a, 0x1e),
+            bar: Color32::from_rgb(31, 42, 48),
+            hairline: Color32::from_rgb(0x1d, 0x25, 0x2a),
+            sep: Color32::from_rgb(0x3d, 0x46, 0x4c),
+            dim: Color32::from_rgb(0x4f, 0x58, 0x5e),
+            dark_gray: Color32::from_rgb(0x7a, 0x83, 0x8a),
+            gray: Color32::from_rgb(0xb0, 0xb4, 0xb8),
+            name: Color32::from_rgb(0xa9, 0xb1, 0xb6),
+            prose: Color32::from_rgb(0xc9, 0xcf, 0xd3),
+            bright: Color32::WHITE,
+            code_background: Color32::from_rgb(0x1d, 0x27, 0x2c),
+            selection: Color32::from_rgb(0x1d, 0x4a, 0x52),
+            accent: Color32::from_rgb(0x3d, 0xc8, 0xd8),
+            magenta: Color32::from_rgb(0xd0, 0x6a, 0xd8),
+            green: Color32::from_rgb(0x4e, 0xc9, 0x6a),
+            yellow: Color32::from_rgb(0xe0, 0xb8, 0x4a),
+        }
+    }
+}
+
+thread_local! {
+    /// The colors of the view being drawn: set by `MinerveView::show` for its frame, so the
+    /// drawing code reads them without being handed them.
+    static CURRENT: std::cell::Cell<Colors> = std::cell::Cell::new(Colors::default());
+}
+
+/// The colors of the view being drawn.
+pub fn c() -> Colors {
+    CURRENT.with(std::cell::Cell::get)
+}
+
+pub(crate) fn set(colors: Colors) {
+    CURRENT.with(|current| current.set(colors));
+}
 
 pub const FONT_SIZE: f32 = 14.0;
 /// Margins of the chat column and the panels under it.
@@ -66,6 +119,7 @@ pub fn apply(ctx: &egui::Context) {
 /// minerve's look on one style. An app that embeds `MinerveView` keeps its own fonts and
 /// theme; the view applies this to its own `Ui` only.
 pub fn style(style: &mut egui::Style) {
+    let c = c();
     {
         style.text_styles.insert(TextStyle::Body, FontId::new(14.0, FontFamily::Proportional));
         style.text_styles.insert(TextStyle::Heading, FontId::new(18.0, FontFamily::Proportional));
@@ -75,18 +129,18 @@ pub fn style(style: &mut egui::Style) {
         style.spacing.scroll = egui::style::ScrollStyle::floating();
         style.spacing.scroll.bar_width = 6.0;
         let visuals = &mut style.visuals;
-        *visuals = egui::Visuals::dark();
-        visuals.panel_fill = BACKGROUND;
-        visuals.window_fill = BACKGROUND;
-        visuals.extreme_bg_color = BACKGROUND;
-        visuals.override_text_color = Some(PROSE);
-        visuals.widgets.active.fg_stroke = Stroke::new(1.0, WHITE);
-        visuals.code_bg_color = CODE_BACKGROUND;
+        *visuals = if c.dark { egui::Visuals::dark() } else { egui::Visuals::light() };
+        visuals.panel_fill = c.background;
+        visuals.window_fill = c.background;
+        visuals.extreme_bg_color = c.background;
+        visuals.override_text_color = Some(c.prose);
+        visuals.widgets.active.fg_stroke = Stroke::new(1.0, c.bright);
+        visuals.code_bg_color = c.code_background;
         visuals.window_corner_radius = egui::CornerRadius::ZERO;
         visuals.menu_corner_radius = egui::CornerRadius::ZERO;
-        visuals.selection.bg_fill = SELECTION;
-        visuals.selection.stroke = Stroke::new(1.0, CYAN);
-        visuals.text_cursor.stroke = Stroke::new(2.0, CYAN);
+        visuals.selection.bg_fill = c.selection;
+        visuals.selection.stroke = Stroke::new(1.0, c.accent);
+        visuals.text_cursor.stroke = Stroke::new(2.0, c.accent);
         for widget in [
             &mut visuals.widgets.noninteractive,
             &mut visuals.widgets.inactive,
@@ -96,8 +150,8 @@ pub fn style(style: &mut egui::Style) {
         ] {
             widget.corner_radius = egui::CornerRadius::ZERO;
         }
-        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, CYAN);
-        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, WHITE);
+        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, c.accent);
+        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, c.bright);
         style.spacing.item_spacing = egui::vec2(0.0, 0.0);
     }
 }

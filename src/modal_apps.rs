@@ -28,7 +28,7 @@ impl AppsModal {
     pub fn show(&mut self, ctx: &egui::Context) -> ModalAction {
         let mut action = ModalAction::None;
         let mut close = false;
-        egui::Window::new(RichText::new(" Message apps ").color(theme::CYAN))
+        egui::Window::new(RichText::new(" Message apps ").color(theme::c().accent))
             .collapsible(false)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
@@ -55,21 +55,21 @@ impl AppsModal {
 
     fn show_state(&self, ui: &mut egui::Ui) {
         let (label, color) = match self.status.state.as_str() {
-            "connected" => ("connected", theme::GREEN),
-            "connecting" => ("connecting...", theme::GRAY),
-            "failed" => ("failed", theme::MAGENTA),
-            "disconnected" => ("disconnected", theme::DARK_GRAY),
-            _ => ("not set up", theme::DARK_GRAY),
+            "connected" => ("connected", theme::c().green),
+            "connecting" => ("connecting...", theme::c().gray),
+            "failed" => ("failed", theme::c().magenta),
+            "disconnected" => ("disconnected", theme::c().dark_gray),
+            _ => ("not set up", theme::c().dark_gray),
         };
         ui.horizontal(|ui| {
             ui.label("Slack:");
             ui.label(RichText::new(label).color(color));
         });
         if !self.status.detail.is_empty() {
-            ui.label(RichText::new(&self.status.detail).color(if self.status.state == "failed" { theme::MAGENTA } else { theme::GRAY }));
+            ui.label(RichText::new(&self.status.detail).color(if self.status.state == "failed" { theme::c().magenta } else { theme::c().gray }));
         }
         if !self.status.members.is_empty() {
-            ui.label(RichText::new(format!("linked: {}", self.status.members.join(", "))).color(theme::DARK_GRAY));
+            ui.label(RichText::new(format!("linked: {}", self.status.members.join(", "))).color(theme::c().dark_gray));
         }
     }
 
@@ -78,13 +78,13 @@ impl AppsModal {
         match self.status.link.as_str() {
             "waiting" => {
                 ui.label(RichText::new(format!("Send this code to the bot in Slack: {}", self.status.link_detail)).strong());
-                ui.label(RichText::new(format!("expires in {}s", self.status.link_seconds_left)).color(theme::DARK_GRAY));
+                ui.label(RichText::new(format!("expires in {}s", self.status.link_seconds_left)).color(theme::c().dark_gray));
                 if ui.button(" Cancel link ").clicked() {
                     *action = ModalAction::Send(Command::MessageAppsCancelLink {});
                 }
             }
             "linked" => {
-                ui.label(RichText::new(format!("Linked {}.", self.status.link_detail)).color(theme::GREEN));
+                ui.label(RichText::new(format!("Linked {}.", self.status.link_detail)).color(theme::c().green));
             }
             _ => {}
         }
@@ -113,7 +113,7 @@ fn show_form(ui: &mut egui::Ui, form: &mut [String; 3], status: &MessageAppsStat
         if ui.button(" Copy Slack manifest + open Slack ").clicked() {
             *action = ModalAction::Send(Command::MessageAppsManifest { bot_name: form[0].clone() });
         }
-        ui.label(RichText::new("create the app from the manifest, then paste its tokens").color(theme::DARK_GRAY));
+        ui.label(RichText::new("create the app from the manifest, then paste its tokens").color(theme::c().dark_gray));
     });
     let saved = if status.has_tokens { " (saved: leave empty to keep)" } else { "" };
     ui.label(format!("App token, xapp-…{saved}"));

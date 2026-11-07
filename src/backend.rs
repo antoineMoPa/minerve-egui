@@ -26,6 +26,28 @@ pub struct Launcher {
     pub workdir: Option<PathBuf>,
 }
 
+/// A minerve the host app already runs and talks to, handed to `MinerveView::attached`: its
+/// event lines (the control protocol's, one JSON object each, the host replaying `hello` and
+/// the latest state first), and where command lines go. Ending the minerve is the host's.
+pub struct Link {
+    pub events: Receiver<String>,
+    pub send: Box<dyn Fn(String) + Send + Sync>,
+}
+
+impl std::fmt::Debug for Link {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Link")
+    }
+}
+
+/// Where command lines go.
+enum Transport {
+    /// The socket of the minerve we started, which we end.
+    Socket { stream: Mutex<UnixStream>, child: Child, socket_path: PathBuf },
+    /// The host's minerve.
+    Link(Box<dyn Fn(String) + Send + Sync>),
+}
+
 /// Each view in this process listens on its own socket.
 static NEXT_SOCKET: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
@@ -36,10 +58,33 @@ pub enum BackendEvent {
 }
 
 pub struct Backend {
-    writer: Mutex<UnixStream>,
-    child: Child,
-    socket_path: PathBuf,
+    transport: Transport,
     pub events: Receiver<BackendEvent>,
+}
+
+/// Reads event lines, handing each to `tx` and waking the UI. Ends with `Disconnected`.
+fn forward_lines(lines: impl Iterator<Item = Result<String, String>>, tx: mpsc::Sender<BackendEvent>, ctx: eframe::egui::Context) {
+    for line in lines {
+        let event = line.and_then(|line| {
+            serde_json::from_str::<Event>(&line).map_err(|err| format!("unreadable line ({err}): {line}"))
+        });
+        match event {
+            Ok(event) => {
+                // The view is gone: stop, which lets go of the host's end too.
+                if tx.send(BackendEvent::Event(event)).is_err() {
+                    return;
+                }
+                ctx.request_repaint();
+            }
+            Err(reason) => {
+                let _ = tx.send(BackendEvent::Disconnected(reason));
+                ctx.request_repaint();
+                return;
+            }
+        }
+    }
+    let _ = tx.send(BackendEvent::Disconnected("minerve closed the connection".into()));
+    ctx.request_repaint();
 }
 
 fn minerve_dir() -> PathBuf {
@@ -135,33 +180,28 @@ impl Backend {
         let reader = stream.try_clone().map_err(|err| err.to_string())?;
         let (tx, events) = mpsc::channel();
         std::thread::spawn(move || {
-            for line in BufReader::new(reader).lines() {
-                let event = line
-                    .map_err(|err| err.to_string())
-                    .and_then(|line| serde_json::from_str::<Event>(&line).map_err(|err| format!("unreadable line ({err}): {line}")));
-                match event {
-                    Ok(event) => {
-                        let _ = tx.send(BackendEvent::Event(event));
-                        ctx.request_repaint();
-                    }
-                    Err(reason) => {
-                        let _ = tx.send(BackendEvent::Disconnected(reason));
-                        ctx.request_repaint();
-                        return;
-                    }
-                }
-            }
-            let _ = tx.send(BackendEvent::Disconnected("minerve closed the connection".into()));
-            ctx.request_repaint();
+            forward_lines(BufReader::new(reader).lines().map(|line| line.map_err(|err| err.to_string())), tx, ctx)
         });
-        Ok(Self { writer: Mutex::new(stream), child, socket_path, events })
+        Ok(Self { transport: Transport::Socket { stream: Mutex::new(stream), child, socket_path }, events })
+    }
+
+    /// Talks to the host's minerve over `link`.
+    pub fn attach(link: Link, ctx: eframe::egui::Context) -> Self {
+        let Link { events: lines, send } = link;
+        let (tx, events) = mpsc::channel();
+        std::thread::spawn(move || forward_lines(lines.into_iter().map(Ok), tx, ctx));
+        Self { transport: Transport::Link(send), events }
     }
 
     pub fn send(&self, command: &Command) {
-        let mut line = serde_json::to_vec(command).expect("commands always serialize");
-        line.push(b'\n');
+        let line = serde_json::to_string(command).expect("commands always serialize");
         // A minerve that went away shows up as `Disconnected`.
-        let _ = self.writer.lock().unwrap().write_all(&line);
+        match &self.transport {
+            Transport::Socket { stream, .. } => {
+                let _ = stream.lock().unwrap().write_all(format!("{line}\n").as_bytes());
+            }
+            Transport::Link(send) => send(line),
+        }
     }
 }
 
@@ -173,19 +213,21 @@ fn fail(child: &mut Child, socket_path: &Path, reason: String) -> String {
 }
 
 impl Drop for Backend {
+    /// Ends the minerve we started. The host's goes on: it is the host's to end.
     fn drop(&mut self) {
-        let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
+        let Transport::Socket { stream, child, socket_path } = &mut self.transport else { return };
+        let _ = stream.lock().unwrap().shutdown(std::net::Shutdown::Both);
         let deadline = Instant::now() + CLEAN_EXIT_TIMEOUT;
         while Instant::now() < deadline {
-            if matches!(self.child.try_wait(), Ok(Some(_))) {
+            if matches!(child.try_wait(), Ok(Some(_))) {
                 break;
             }
             std::thread::sleep(Duration::from_millis(20));
         }
-        if !matches!(self.child.try_wait(), Ok(Some(_))) {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
+        if !matches!(child.try_wait(), Ok(Some(_))) {
+            let _ = child.kill();
+            let _ = child.wait();
         }
-        let _ = std::fs::remove_file(&self.socket_path);
+        let _ = std::fs::remove_file(socket_path);
     }
 }

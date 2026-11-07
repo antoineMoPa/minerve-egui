@@ -26,5 +26,6 @@ mod toys;
 pub mod theme;
 mod view;
 
-pub use backend::Launcher;
+pub use backend::{Launcher, Link};
+pub use theme::Colors;
 pub use view::{MinerveView, Options};

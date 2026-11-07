@@ -43,15 +43,24 @@ impl Modal {
 }
 
 fn window(title: &str) -> egui::Window<'_> {
-    egui::Window::new(RichText::new(format!(" {title} ")).color(theme::CYAN))
+    egui::Window::new(RichText::new(format!(" {title} ")).color(theme::c().accent))
         .collapsible(false)
         .resizable(false)
         .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
         .fixed_size([620.0, 420.0])
-        .frame(egui::Frame::window(&egui::Style::default()).fill(theme::BACKGROUND).inner_margin(16.0))
+        .frame(dialog_frame())
 }
 
-/// The global theme zeroes item spacing (tight chat layout); dialogs need air.
+/// A dialog's frame in the view's colors, light or dark.
+fn dialog_frame() -> egui::Frame {
+    egui::Frame::NONE
+        .fill(theme::c().background)
+        .stroke(egui::Stroke::new(1.0, theme::c().sep))
+        .shadow(egui::Shadow { offset: [0, 6], blur: 18, spread: 0, color: egui::Color32::from_black_alpha(60) })
+        .inner_margin(16.0)
+}
+
+/// The view's style zeroes item spacing (tight chat layout); dialogs need air.
 fn roomy(ui: &mut egui::Ui) {
     let spacing = ui.spacing_mut();
     spacing.item_spacing = egui::vec2(8.0, 8.0);
@@ -104,10 +113,10 @@ impl ModelModal {
             }
             for list in &self.lists {
                 if let Some(error) = &list.error {
-                    ui.label(RichText::new(format!("{}: {error}", list.provider)).color(theme::MAGENTA));
+                    ui.label(RichText::new(format!("{}: {error}", list.provider)).color(theme::c().magenta));
                 }
             }
-            ui.label(RichText::new("Enter choose · Esc close").color(theme::DARK_GRAY));
+            ui.label(RichText::new("Enter choose · Esc close").color(theme::c().dark_gray));
             egui::ScrollArea::vertical().max_height(310.0).show(ui, |ui| {
                 for (index, (id, recent)) in rows.iter().enumerate() {
                     let marker = if *id == self.current { "* " } else { "  " };
@@ -122,7 +131,7 @@ impl ModelModal {
                     }
                 }
                 if rows.is_empty() {
-                    ui.label(RichText::new("no models (is an API key set? try /apikeys)").color(theme::DARK_GRAY));
+                    ui.label(RichText::new("no models (is an API key set? try /apikeys)").color(theme::c().dark_gray));
                 }
             });
         });
@@ -161,7 +170,7 @@ impl SessionModal {
         let mut action = ModalAction::None;
         window("Resume").show(ctx, |ui| {
             roomy(ui);
-            ui.label(RichText::new("Enter resume · Esc close").color(theme::DARK_GRAY));
+            ui.label(RichText::new("Enter resume · Esc close").color(theme::c().dark_gray));
             egui::ScrollArea::vertical().max_height(330.0).show(ui, |ui| {
                 for (index, session) in self.sessions.iter().enumerate() {
                     let label = format!("{:>8}  {}", age(now.saturating_sub(session.modified)), session.first_prompt);
@@ -174,7 +183,7 @@ impl SessionModal {
                     }
                 }
                 if self.sessions.is_empty() {
-                    ui.label(RichText::new("no saved sessions yet").color(theme::DARK_GRAY));
+                    ui.label(RichText::new("no saved sessions yet").color(theme::c().dark_gray));
                 }
             });
         });
@@ -209,7 +218,7 @@ impl KeysModal {
     fn show(&mut self, ctx: &egui::Context) -> ModalAction {
         let mut action = ModalAction::None;
         let names = ["OpenRouter", "OpenAI", "Anthropic"];
-        egui::Window::new(RichText::new(" API keys ").color(theme::CYAN))
+        egui::Window::new(RichText::new(" API keys ").color(theme::c().accent))
             .collapsible(false)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
@@ -236,7 +245,7 @@ impl KeysModal {
                         action = ModalAction::Close;
                     }
                 });
-                ui.label(RichText::new("Saved to ~/.minerve/keys.json").color(theme::DARK_GRAY));
+                ui.label(RichText::new("Saved to ~/.minerve/keys.json").color(theme::c().dark_gray));
             });
         action
     }
@@ -281,14 +290,14 @@ impl McpModal {
                     }
                 }
                 if self.servers.is_empty() {
-                    ui.label(RichText::new("no MCP servers yet").color(theme::DARK_GRAY));
+                    ui.label(RichText::new("no MCP servers yet").color(theme::c().dark_gray));
                 }
             });
             ui.separator();
             if let Some(server) = self.servers.get(self.selected) {
                 ui.label(RichText::new(&server.target).strong());
                 if !server.detail.is_empty() {
-                    let color = if server.state == "failed" { theme::MAGENTA } else { theme::GRAY };
+                    let color = if server.state == "failed" { theme::c().magenta } else { theme::c().gray };
                     ui.label(RichText::new(&server.detail).color(color));
                 }
                 let name = server.name.clone();
@@ -311,7 +320,7 @@ impl McpModal {
                         }
                     }
                     if self.confirm_remove {
-                        if ui.button(RichText::new(" Really remove ").color(theme::MAGENTA)).clicked() {
+                        if ui.button(RichText::new(" Really remove ").color(theme::c().magenta)).clicked() {
                             self.confirm_remove = false;
                             action = ModalAction::Send(Command::McpRemove { name: name.clone() });
                         }
@@ -338,12 +347,12 @@ impl McpModal {
         let labels = ["Name", "Command or URL", "Env or headers (KEY=value, one per space)"];
         let mut done = false;
         let mut back = false;
-        egui::Window::new(RichText::new(" Add MCP server ").color(theme::CYAN))
+        egui::Window::new(RichText::new(" Add MCP server ").color(theme::c().accent))
             .collapsible(false)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
             .fixed_size([560.0, 240.0])
-            .frame(egui::Frame::window(&egui::Style::default()).fill(theme::BACKGROUND).inner_margin(16.0))
+            .frame(dialog_frame())
             .show(ctx, |ui| {
             roomy(ui);
                 for (index, label) in labels.iter().enumerate() {

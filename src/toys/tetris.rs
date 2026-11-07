@@ -29,10 +29,10 @@ const SHAPES: [[(i32, i32); 4]; 7] = [
 ];
 
 const COLORS: [Color32; 7] = [
-    theme::CYAN,
+    Color32::from_rgb(0x3d, 0xc8, 0xd8),
     Color32::from_rgb(0xe0, 0xc8, 0x40),
-    theme::MAGENTA,
-    theme::GREEN,
+    Color32::from_rgb(0xd0, 0x6a, 0xd8),
+    Color32::from_rgb(0x4e, 0xc9, 0x6a),
     Color32::from_rgb(0xe0, 0x50, 0x50),
     Color32::from_rgb(0x50, 0x70, 0xe8),
     Color32::from_rgb(255, 165, 0),
@@ -230,14 +230,14 @@ impl Tetris {
 
     fn paint(&self, ui: &egui::Ui, rect: Rect) {
         let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 0.0, theme::BACKGROUND);
+        painter.rect_filled(rect, 0.0, theme::c().background);
         let cell = CELL.min(rect.height() / (HEIGHT as f32 + 2.0)).max(8.0);
         let board_size = egui::vec2(WIDTH as f32 * cell, HEIGHT as f32 * cell);
         let panel_width = cell * 8.0;
         let total = board_size.x + cell * 2.0 + panel_width;
         let origin = rect.center() - egui::vec2(total / 2.0, board_size.y / 2.0);
         let board = Rect::from_min_size(origin, board_size);
-        painter.rect_stroke(board.expand(2.0), 0.0, egui::Stroke::new(1.0, theme::CYAN), egui::StrokeKind::Outside);
+        painter.rect_stroke(board.expand(2.0), 0.0, egui::Stroke::new(1.0, theme::c().accent), egui::StrokeKind::Outside);
 
         let mut grid = self.board;
         for (x, y) in self.piece.cells() {
@@ -249,7 +249,7 @@ impl Tetris {
                 let square = Rect::from_min_size(min, egui::vec2(cell, cell)).shrink(1.0);
                 match kind {
                     Some(kind) => painter.rect_filled(square, 0.0, COLORS[*kind]),
-                    None => painter.circle_filled(square.center(), 1.0, theme::DARK_GRAY),
+                    None => painter.circle_filled(square.center(), 1.0, theme::c().dark_gray),
                 };
             }
         }
@@ -259,25 +259,25 @@ impl Tetris {
         let line = |index: f32, text: String, color: Color32| {
             painter.text(panel + egui::vec2(0.0, index * 18.0), Align2::LEFT_TOP, text, font.clone(), color);
         };
-        line(0.0, "score".into(), theme::GRAY);
-        line(1.0, self.score.to_string(), theme::WHITE);
-        line(3.0, "lines".into(), theme::GRAY);
-        line(4.0, self.lines.to_string(), theme::WHITE);
-        line(6.0, "level".into(), theme::GRAY);
-        line(7.0, self.level().to_string(), theme::WHITE);
-        line(9.0, "next".into(), theme::GRAY);
+        line(0.0, "score".into(), theme::c().gray);
+        line(1.0, self.score.to_string(), theme::c().bright);
+        line(3.0, "lines".into(), theme::c().gray);
+        line(4.0, self.lines.to_string(), theme::c().bright);
+        line(6.0, "level".into(), theme::c().gray);
+        line(7.0, self.level().to_string(), theme::c().bright);
+        line(9.0, "next".into(), theme::c().gray);
         for (dx, dy) in SHAPES[self.next] {
             let min = panel + egui::vec2((dx + 1) as f32 * cell, 10.0 * 18.0 + (dy + 1) as f32 * cell);
             painter.rect_filled(Rect::from_min_size(min, egui::vec2(cell, cell)).shrink(1.0), 0.0, COLORS[self.next]);
         }
         let help_top = 10.0 * 18.0 + cell * 3.0;
         for (index, text) in ["←→ move  ↑ turn", "↓ soft  space drop", "esc/q leave"].iter().enumerate() {
-            painter.text(panel + egui::vec2(0.0, help_top + index as f32 * 18.0), Align2::LEFT_TOP, *text, font.clone(), theme::DARK_GRAY);
+            painter.text(panel + egui::vec2(0.0, help_top + index as f32 * 18.0), Align2::LEFT_TOP, *text, font.clone(), theme::c().dark_gray);
         }
         if self.over {
             let top = help_top + 4.0 * 18.0;
-            painter.text(panel + egui::vec2(0.0, top), Align2::LEFT_TOP, "game over", font.clone(), theme::MAGENTA);
-            painter.text(panel + egui::vec2(0.0, top + 18.0), Align2::LEFT_TOP, "r to restart", font, theme::GRAY);
+            painter.text(panel + egui::vec2(0.0, top), Align2::LEFT_TOP, "game over", font.clone(), theme::c().magenta);
+            painter.text(panel + egui::vec2(0.0, top + 18.0), Align2::LEFT_TOP, "r to restart", font, theme::c().gray);
         }
     }
 }

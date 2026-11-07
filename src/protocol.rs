@@ -19,6 +19,9 @@ pub enum Event {
         minerve_version: String,
         #[serde(default)]
         features: Vec<String>,
+        /// The folder minerve works in. Empty from a minerve too old to say.
+        #[serde(default)]
+        cwd: String,
     },
     Session { session_id: String },
     State { state: AgentState },
@@ -129,11 +132,11 @@ mod tests {
     fn events_parse_from_the_lines_minerve_sends() {
         assert_eq!(
             parse(r#"{"type":"hello","version":1}"#),
-            Event::Hello { version: 1, minerve_version: String::new(), features: vec![] }
+            Event::Hello { version: 1, minerve_version: String::new(), features: vec![], cwd: String::new() }
         );
         assert_eq!(
             parse(r#"{"type":"hello","version":1,"minerve_version":"0.8.0","features":["serve","intro"]}"#),
-            Event::Hello { version: 1, minerve_version: "0.8.0".into(), features: vec!["serve".into(), "intro".into()] }
+            Event::Hello { version: 1, minerve_version: "0.8.0".into(), features: vec!["serve".into(), "intro".into()], cwd: String::new() }
         );
         assert_eq!(
             parse(r#"{"type":"intro","fps":24,"caption":"c","frames":["f"],"tips":["t"]}"#),

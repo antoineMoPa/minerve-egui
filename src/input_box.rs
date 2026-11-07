@@ -11,6 +11,10 @@ const MAX_ROWS: usize = 8;
 
 pub struct InputBox {
     pub text: String,
+    /// Its widget id: one per view, so two views never share a box.
+    pub id: Id,
+    /// Takes the keyboard whenever nothing has it (the standalone window).
+    pub grabs_focus: bool,
     tips: Tips,
     /// Sent prompts, oldest first, and where Up/Down browsing is. `draft` is what was typed before browsing.
     history: Vec<String>,
@@ -38,19 +42,16 @@ pub enum InputAction {
 fn pill(ui: &mut egui::Ui, label: &str, value: &str) -> egui::Response {
     let mut job = egui::text::LayoutJob::default();
     let format = |color| egui::TextFormat { font_id: theme::small(), color, ..Default::default() };
-    job.append(&format!("{label} "), 0.0, format(theme::DARK_GRAY));
-    job.append(value, 0.0, format(theme::GRAY));
+    job.append(&format!("{label} "), 0.0, format(theme::c().dark_gray));
+    job.append(value, 0.0, format(theme::c().gray));
     let button = egui::Button::new(job)
-        .fill(theme::BACKGROUND)
-        .stroke(Stroke::new(1.0, theme::HAIRLINE))
+        .fill(theme::c().background)
+        .stroke(Stroke::new(1.0, theme::c().hairline))
         .corner_radius(4)
         .min_size(egui::vec2(0.0, 22.0));
     ui.add(button).on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-fn id() -> Id {
-    Id::new("message input")
-}
 
 /// Takes the first Enter press without Shift out of the input events, so the text edit never sees it.
 fn take_plain_enter(ctx: &egui::Context) -> bool {
@@ -68,8 +69,14 @@ fn take_key(ctx: &egui::Context, key: Key) -> bool {
 
 impl InputBox {
     pub fn new() -> Self {
+        Self::with_id(Id::new("message input"))
+    }
+
+    pub fn with_id(id: Id) -> Self {
         Self {
             text: String::new(),
+            id,
+            grabs_focus: true,
             tips: Tips::new(Instant::now()),
             history: Vec::new(),
             browsing: None,
@@ -79,6 +86,13 @@ impl InputBox {
             paste_error: None,
             rect: egui::Rect::NOTHING,
         }
+    }
+
+    /// Replaces the text, puts the cursor at its end and gives the box the keyboard.
+    pub fn set_text(&mut self, ctx: &egui::Context, text: &str) {
+        self.text = text.to_string();
+        self.move_cursor_to_end = true;
+        ctx.memory_mut(|memory| memory.request_focus(self.id));
     }
 
     pub fn set_tips(&mut self, tips: Vec<String>) {
@@ -142,7 +156,7 @@ impl InputBox {
     /// `model` is empty until minerve said which one runs. `working` turns send into stop.
     pub fn show(&mut self, ui: &mut egui::Ui, model: &str, working: bool) -> InputAction {
         let ctx = ui.ctx().clone();
-        let focused = ctx.memory(|memory| memory.has_focus(id()));
+        let focused = ctx.memory(|memory| memory.has_focus(self.id));
         let mut action = InputAction::None;
         if focused {
             if take_plain_enter(&ctx) && !self.text.trim().is_empty() {
@@ -177,26 +191,26 @@ impl InputBox {
 
         let tip = self.tips.visible_text(Instant::now());
         let rows = self.text.lines().count().max(1) + usize::from(self.text.ends_with('\n'));
-        let border = if focused { theme::CYAN } else { theme::SEP };
+        let border = if focused { theme::c().accent } else { theme::c().sep };
         let frame = egui::Frame::NONE
             .stroke(Stroke::new(1.0, border))
-            .fill(theme::SURFACE)
+            .fill(theme::c().surface)
             .corner_radius(8)
             .inner_margin(egui::Margin { left: 14, right: 8, top: 12, bottom: 8 });
         let output = frame.show(ui, |ui| {
             let mut edit = TextEdit::multiline(&mut self.text)
-                .id(id())
+                .id(self.id)
                 .frame(egui::Frame::NONE)
                 .desired_width(f32::INFINITY)
                 .desired_rows(rows.min(MAX_ROWS))
-                .hint_text(RichText::new(tip.as_str()).color(theme::DARK_GRAY));
+                .hint_text(RichText::new(tip.as_str()).color(theme::c().dark_gray));
             edit = edit.lock_focus(true);
             let response = edit.show(ui);
             if std::mem::take(&mut self.move_cursor_to_end) {
                 let mut state = response.state.clone();
                 let end = egui::text::CCursor::new(self.text.chars().count());
                 state.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
-                state.store(ui.ctx(), id());
+                state.store(ui.ctx(), self.id);
             }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
@@ -206,14 +220,14 @@ impl InputBox {
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let (text, color, fill) = if working {
-                        ("\u{25a0} stop", theme::MAGENTA, theme::SURFACE)
+                        ("\u{25a0} stop", theme::c().magenta, theme::c().surface)
                     } else {
-                        ("send \u{21b5}", theme::BACKGROUND, theme::CYAN)
+                        ("send \u{21b5}", theme::c().background, theme::c().accent)
                     };
                     let enabled = working || !self.text.trim().is_empty();
                     let button = egui::Button::new(RichText::new(text).font(theme::small()).color(color).strong())
-                        .fill(if enabled { fill } else { theme::HAIRLINE })
-                        .stroke(Stroke::new(1.0, if working { theme::MAGENTA } else { egui::Color32::TRANSPARENT }))
+                        .fill(if enabled { fill } else { theme::c().hairline })
+                        .stroke(Stroke::new(1.0, if working { theme::c().magenta } else { egui::Color32::TRANSPARENT }))
                         .corner_radius(4)
                         .min_size(egui::vec2(0.0, 22.0));
                     if ui.add_enabled(enabled, button).clicked() {
@@ -222,9 +236,10 @@ impl InputBox {
                 });
             });
         });
-        // Focus on start and after sending, so typing goes straight to the box.
-        if ctx.memory(|memory| memory.focused().is_none()) {
-            ctx.memory_mut(|memory| memory.request_focus(id()));
+        // Focus on start and after sending, so typing goes straight to the box - unless the box
+        // is one pane of an app, whose other panes want the keys as much.
+        if self.grabs_focus && ctx.memory(|memory| memory.focused().is_none()) {
+            ctx.memory_mut(|memory| memory.request_focus(self.id));
         }
         self.rect = output.response.rect;
         if self.text.is_empty() {

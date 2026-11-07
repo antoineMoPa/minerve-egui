@@ -34,33 +34,48 @@ pub fn resolve(input: &str) -> Option<&'static str> {
     matches(input).first().map(|(name, _)| *name)
 }
 
-/// The menu of matches, floating just above the message box (`input_rect`).
-pub fn show_menu(ctx: &egui::Context, input_text: &str, input_rect: egui::Rect) {
+/// The menu of matches, floating just above the message box (`input_rect`). Returns the
+/// command clicked, to put in the box as Tab would.
+pub fn show_menu(ctx: &egui::Context, id: egui::Id, input_text: &str, input_rect: egui::Rect) -> Option<&'static str> {
     let found = matches(input_text);
     if found.is_empty() {
-        return;
+        return None;
     }
-    egui::Area::new(egui::Id::new("slash menu"))
+    let mut picked = None;
+    egui::Area::new(id)
         .order(egui::Order::Foreground)
         .pivot(Align2::LEFT_BOTTOM)
         .fixed_pos(input_rect.left_top() - egui::vec2(0.0, 6.0))
         .show(ctx, |ui| {
             egui::Frame::NONE
-                .fill(theme::SURFACE)
-                .stroke(egui::Stroke::new(1.0, theme::SEP))
+                .fill(theme::c().surface)
+                .stroke(egui::Stroke::new(1.0, theme::c().sep))
                 .corner_radius(4)
                 .inner_margin(egui::Margin::symmetric(12, 8))
                 .show(ui, |ui| {
                     for (index, (name, description)) in found.iter().enumerate() {
-                        ui.horizontal(|ui| {
-                            let name_color = if index == 0 { theme::CYAN } else { theme::NAME };
+                        // Reserved before the row, so the hover fill is drawn under its text.
+                        let fill = ui.painter().add(egui::Shape::Noop);
+                        let row = ui.horizontal(|ui| {
+                            let name_color = if index == 0 { theme::c().accent } else { theme::c().name };
                             ui.label(RichText::new(format!("{name:<14}")).font(theme::small()).color(name_color));
-                            ui.label(RichText::new(*description).font(theme::small()).color(theme::DARK_GRAY));
+                            ui.label(RichText::new(*description).font(theme::small()).color(theme::c().dark_gray));
                         });
+                        let response = ui
+                            .interact(row.response.rect, id.with(*name), egui::Sense::click())
+                            .on_hover_cursor(egui::CursorIcon::PointingHand);
+                        if response.hovered() {
+                            let rect = row.response.rect.expand(2.0);
+                            ui.painter().set(fill, egui::Shape::rect_filled(rect, 2.0, theme::c().hairline));
+                        }
+                        if response.clicked() {
+                            picked = Some(*name);
+                        }
                     }
-                    ui.label(RichText::new("Tab completes").font(theme::small()).color(theme::DIM));
+                    ui.label(RichText::new("Tab completes · click picks").font(theme::small()).color(theme::c().dim));
                 });
         });
+    picked
 }
 
 #[cfg(test)]
