@@ -1,0 +1,22 @@
+[package]
+name = "minerve-gui"
+version = "0.1.0"
+edition = "2021"
+repository = "https://github.com/antoineMoPa/minerve-egui"
+description = "Window for minerve, driving a `minerve --serve` over a Unix socket"
+
+[[bin]]
+name = "minerve-gui"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+dirs = "6.0.0"
+eframe = "0.32"
+egui_commonmark = "0.21"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+winit = { version = "0.30", default-features = false }
+
+[profile.release]
+strip = true

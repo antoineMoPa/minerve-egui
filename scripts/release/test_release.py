@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""Offline release and installer checks; all artifacts stay in a temp directory."""
+import contextlib
+import functools
+import io
+import hashlib
+import http.server
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import threading
+import tarfile
+import unittest
+from unittest.mock import patch
+
+import release
+
+
+class QuietHandler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *_):
+        pass
+
+
+class ReleaseTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.original_root = release.ROOT
+        self.root_patch = patch.object(release, "ROOT", self.root)
+        self.root_patch.start()
+        self.addCleanup(self.root_patch.stop)
+        (self.root / "Cargo.toml").write_text('[package]\nname = "minerve-gui"\nversion = "0.1.0"\n')
+        (self.root / "LICENSE").write_text("test license\n")
+        # Deliberately put private data beside the files we package.
+        (self.root / ".env").write_text("PRIVATE_TOKEN=must-never-ship\n")
+        for target in release.TARGETS:
+            binary = self.root / "target" / target / "release" / release.BINARY
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"test executable\n")
+            with contextlib.redirect_stdout(io.StringIO()):
+                release.package("v0.1.0", target)
+        self.output = self.root / "target/release-artifacts/v0.1.0"
+
+    def test_archive_allowlist_and_corruption(self):
+        release.verify(self.output)
+        archive = self.output / release.archive_name(release.TARGETS[0])
+        archive.write_bytes(archive.read_bytes() + b"corruption")
+        with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+            release.verify(self.output)
+
+    def test_unexpected_files_prevent_publication(self):
+        archive = self.output / release.archive_name(release.TARGETS[0])
+        with tarfile.open(archive, "w:gz") as bundle:
+            bundle.add(self.root / ".env", arcname=".env")
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        archive.with_name(archive.name + ".sha256").write_text(f"{digest}  {archive.name}\n")
+        with self.assertRaisesRegex(ValueError, "unexpected archive contents"):
+            release.verify(self.output)
+
+    def test_resume_never_publishes_incomplete_release(self):
+        calls = []
+        shutil.copyfile(self.original_root / "install.sh", self.root / "install.sh")
+        def fake_run(*args, **kwargs):
+            if args[:2] == ("git", "rev-parse"):
+                return "same-commit"
+            if args[:2] == ("git", "ls-remote"):
+                return "abc123\trefs/tags/v0.1.0"
+            return ""
+        def fake_gh(*args, **kwargs):
+            calls.append(args)
+            if args[:2] == ("release", "list"):
+                return '[{"tagName": "v0.1.0", "isDraft": true}]'
+            if args[:2] == ("run", "list"):
+                return "[]" if sum(c[:2] == ("run", "list") for c in calls) == 1 else '[{"databaseId": 123}]'
+            if args[:2] == ("release", "download"):
+                destination = Path(args[args.index("--dir") + 1])
+                destination.mkdir()
+                for asset in self.output.iterdir():
+                    if asset.is_file() and release.TARGETS[0] in asset.name:
+                        shutil.copyfile(asset, destination / asset.name)
+            return ""
+        with patch.object(release, "run", side_effect=fake_run), \
+             patch.object(release, "gh", side_effect=fake_gh), \
+             patch.object(release, "host_target", return_value=release.TARGETS[0]), \
+             patch.object(release, "build"):
+            with self.assertRaises(FileNotFoundError):
+                release.publish(resume=True)
+        self.assertTrue(any(c[:2] == ("workflow", "run") and f"local_target={release.TARGETS[0]}" in c for c in calls))
+        self.assertFalse(any(c[:2] == ("release", "edit") for c in calls))
+
+    def resume_calls(self, releases_json, remote_tag):
+        calls = []
+        def fake_run(*args, **kwargs):
+            if args[:2] == ("git", "rev-parse"):
+                return "same-commit"
+            if args[:2] == ("git", "ls-remote"):
+                return remote_tag
+            return ""
+        def fake_gh(*args, **kwargs):
+            calls.append(args)
+            if args[:2] == ("release", "list"):
+                return releases_json
+            if args[:2] == ("release", "upload"):
+                raise RuntimeError("stop after the draft step")
+            return ""
+        with patch.object(release, "run", side_effect=fake_run), \
+             patch.object(release, "gh", side_effect=fake_gh), \
+             patch.object(release, "host_target", return_value=release.TARGETS[0]), \
+             patch.object(release, "build"):
+            with self.assertRaises((ValueError, RuntimeError)) as caught:
+                release.publish(resume=True)
+        return calls, caught.exception
+
+    def test_resume_creates_missing_draft_when_tag_was_pushed(self):
+        calls, _ = self.resume_calls("[]", "abc123\trefs/tags/v0.1.0")
+        self.assertTrue(any(c[:2] == ("release", "create") and "--draft" in c for c in calls))
+
+    def test_resume_reuses_existing_draft(self):
+        calls, error = self.resume_calls('[{"tagName": "v0.1.0", "isDraft": true}]', "abc123\trefs/tags/v0.1.0")
+        self.assertIn("stop after the draft step", str(error))
+        self.assertFalse(any(c[:2] == ("release", "create") for c in calls))
+
+    def test_resume_refuses_published_release(self):
+        calls, error = self.resume_calls('[{"tagName": "v0.1.0", "isDraft": false}]', "abc123\trefs/tags/v0.1.0")
+        self.assertIn("already published", str(error))
+        self.assertFalse(any(c[:2] in (("release", "create"), ("release", "edit")) for c in calls))
+
+    def test_resume_refuses_tag_that_was_never_pushed(self):
+        calls, error = self.resume_calls("[]", "")
+        self.assertIn("not pushed", str(error))
+        self.assertFalse(any(c[:2] == ("release", "create") for c in calls))
+
+    def test_failed_local_build_restores_version_files(self):
+        # The version bump looks for the section after [package], as in a real Cargo.toml.
+        (self.root / "Cargo.toml").write_text('[package]\nname = "minerve-gui"\nversion = "0.1.0"\n\n[dependencies]\n')
+        commands = []
+        def fake_run(*args, **kwargs):
+            commands.append(args)
+            return ""
+        with patch.object(release, "run", side_effect=fake_run), \
+             patch.object(release, "gh", return_value=""), \
+             patch.object(release, "host_target", return_value=release.TARGETS[0]), \
+             patch.object(release, "build", side_effect=ValueError("compile failed")):
+            with self.assertRaisesRegex(ValueError, "compile failed"):
+                release.publish(resume=False)
+        self.assertIn(("git", "checkout", "--", "Cargo.toml", "Cargo.lock"), commands)
+        creating = [c for c in commands if c[:2] == ("git", "commit") or c[:3] == ("git", "tag", "-a")
+                    or (c[:2] == ("git", "push") and "--dry-run" not in c)]
+        self.assertEqual(creating, [])
+
+    def test_missing_platform_prevents_publication(self):
+        (self.output / release.archive_name(release.TARGETS[-1])).unlink()
+        with self.assertRaises(FileNotFoundError):
+            release.verify(self.output)
+
+    def test_build_environment_excludes_secrets(self):
+        with patch.dict(os.environ, {"PRIVATE_TOKEN": "private", "RUSTFLAGS": "private"}):
+            env = release.build_env()
+        self.assertNotIn("PRIVATE_TOKEN", env)
+        self.assertNotIn("RUSTFLAGS", env)
+        self.assertIn("PATH", env)
+
+    def test_tag_must_match_package(self):
+        with self.assertRaises(ValueError):
+            release.check_tag("v0.2.0")
+        with self.assertRaises(ValueError):
+            release.check_tag("../../private")
+
+    def test_next_release_version_bumps_minor_and_resets_patch(self):
+        self.assertEqual(release.next_release_version(), "0.2.0")
+        (self.root / "Cargo.toml").write_text('[package]\nname = "minerve-gui"\nversion = "12.34.56"\n')
+        self.assertEqual(release.next_release_version(), "12.35.0")
+        (self.root / "Cargo.toml").write_text('[package]\nname = "minerve-gui"\nversion = "development"\n')
+        with self.assertRaisesRegex(ValueError, "MAJOR.MINOR.PATCH"):
+            release.next_release_version()
+
+    def serve(self, directory=None):
+        handler = functools.partial(QuietHandler, directory=str(directory or self.output))
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return f"http://127.0.0.1:{server.server_port}"
+
+    def installer(self, **extra):
+        """Runs install.sh against local servers, as `curl | sh` would (script on stdin)."""
+        shims = self.root / "shims"
+        shims.mkdir(exist_ok=True)
+        uname = shims / "uname"
+        uname.write_text('#!/bin/sh\ncase "$1" in -s) echo "$TEST_OS";; -m) echo "$TEST_ARCH";; esac\n')
+        uname.chmod(0o755)
+        # Stands in for minerve's own installer, which the GUI installer downloads and runs.
+        (self.output / "fake-minerve-install.sh").write_text(
+            '#!/bin/sh\n'
+            'mkdir -p "$MINERVE_INSTALL_DIR" && printf "fake minerve\\n" > "$MINERVE_INSTALL_DIR/minerve"\n')
+        base = self.serve()
+        dest = self.root / f"install space {len(list(self.root.glob('install space *')))}"
+        env = dict(os.environ, MINERVE_INSTALL_DIR=str(dest), MINERVE_GUI_DOWNLOAD_BASE_URL=base,
+                   MINERVE_INSTALLER_URL=f"{base}/fake-minerve-install.sh",
+                   PATH=f"{shims}{os.pathsep}{os.environ['PATH']}", TEST_OS="Darwin", TEST_ARCH="arm64")
+        env.update(extra)
+        script = (self.original_root / "install.sh").read_text()
+        return dest, subprocess.run(["sh"], input=script, env=env, text=True, capture_output=True)
+
+    def test_installer_installs_minerve_first_then_the_window(self):
+        dest, result = self.installer()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((dest / "minerve").read_text(), "fake minerve\n")
+        self.assertEqual((dest / "minerve-gui").read_bytes(), b"test executable\n")
+        self.assertTrue(os.access(dest / "minerve-gui", os.X_OK))
+        # Upgrade over an older install.
+        (dest / "minerve-gui").write_bytes(b"old version")
+        again, result = self.installer(MINERVE_INSTALL_DIR=str(dest))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((dest / "minerve-gui").read_bytes(), b"test executable\n")
+
+    def test_installer_can_skip_the_terminal_app(self):
+        dest, result = self.installer(MINERVE_NO_TUI="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((dest / "minerve").exists())
+        self.assertTrue((dest / "minerve-gui").exists())
+
+    def test_installer_stops_when_minerve_cannot_be_installed(self):
+        dest, result = self.installer(MINERVE_INSTALLER_URL="http://127.0.0.1:1/missing.sh")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((dest / "minerve-gui").exists())
+
+    def test_installer_refuses_a_corrupt_archive(self):
+        archive = self.output / release.archive_name(release.TARGETS[0])
+        archive.write_bytes(b"corrupt")
+        dest, result = self.installer()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Checksum verification failed", result.stderr)
+        self.assertFalse((dest / "minerve-gui").exists())
+
+    def test_installer_names_the_supported_platforms(self):
+        dest, result = self.installer(TEST_OS="Darwin", TEST_ARCH="x86_64")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Supported:", result.stderr)
+
+    def test_installer_picks_the_archive_of_each_platform(self):
+        for system, arch, target in (("Linux", "x86_64", release.TARGETS[1]), ("Linux", "aarch64", release.TARGETS[2])):
+            archive = self.output / release.archive_name(target)
+            original = archive.read_bytes()
+            self.assertTrue(original)
+            dest, result = self.installer(TEST_OS=system, TEST_ARCH=arch)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((dest / "minerve-gui").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
