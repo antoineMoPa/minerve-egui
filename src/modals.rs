@@ -48,6 +48,15 @@ fn window(title: &str) -> egui::Window<'_> {
         .resizable(false)
         .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
         .fixed_size([620.0, 420.0])
+        .frame(egui::Frame::window(&egui::Style::default()).fill(theme::BACKGROUND).inner_margin(16.0))
+}
+
+/// The global theme zeroes item spacing (tight chat layout); dialogs need air.
+fn roomy(ui: &mut egui::Ui) {
+    let spacing = ui.spacing_mut();
+    spacing.item_spacing = egui::vec2(8.0, 8.0);
+    spacing.button_padding = egui::vec2(12.0, 5.0);
+    spacing.interact_size.y = 26.0;
 }
 
 pub struct ModelModal {
@@ -87,6 +96,7 @@ impl ModelModal {
         }
         let mut action = ModalAction::None;
         window("Model").show(ctx, |ui| {
+            roomy(ui);
             let filter = ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text("type to filter").desired_width(f32::INFINITY));
             filter.request_focus();
             if filter.changed() {
@@ -150,6 +160,7 @@ impl SessionModal {
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
         let mut action = ModalAction::None;
         window("Resume").show(ctx, |ui| {
+            roomy(ui);
             ui.label(RichText::new("Enter resume · Esc close").color(theme::DARK_GRAY));
             egui::ScrollArea::vertical().max_height(330.0).show(ui, |ui| {
                 for (index, session) in self.sessions.iter().enumerate() {
@@ -204,6 +215,7 @@ impl KeysModal {
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
             .fixed_size([520.0, 220.0])
             .show(ctx, |ui| {
+            roomy(ui);
                 for (index, name) in names.iter().enumerate() {
                     ui.label(RichText::new(format!("{name} {}", if self.is_set[index] { "(set: leave empty to keep)" } else { "(not set)" })));
                     let edit = ui.add(egui::TextEdit::singleline(&mut self.typed[index]).password(true).desired_width(f32::INFINITY));
@@ -255,6 +267,7 @@ impl McpModal {
             return action;
         }
         window("MCP servers").show(ctx, |ui| {
+            roomy(ui);
             egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
                 for (index, server) in self.servers.iter().enumerate() {
                     let state = match server.state.as_str() {
@@ -330,7 +343,9 @@ impl McpModal {
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
             .fixed_size([560.0, 240.0])
+            .frame(egui::Frame::window(&egui::Style::default()).fill(theme::BACKGROUND).inner_margin(16.0))
             .show(ctx, |ui| {
+            roomy(ui);
                 for (index, label) in labels.iter().enumerate() {
                     ui.label(*label);
                     let edit = ui.add(egui::TextEdit::singleline(&mut form[index]).desired_width(f32::INFINITY));
@@ -338,7 +353,7 @@ impl McpModal {
                         edit.request_focus();
                     }
                 }
-                ui.add_space(6.0);
+                ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     done = ui.button(" Add ").clicked();
                     back = ui.button(" Back ").clicked();

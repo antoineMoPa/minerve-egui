@@ -86,7 +86,12 @@ pub struct SessionInfo {
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Command {
-    Submit { text: String },
+    Submit {
+        text: String,
+        /// Image files for the prompt; sent only when minerve lists the `images` feature.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        images: Vec<std::path::PathBuf>,
+    },
     Cancel {},
     NewSession {},
     GetIntro {},
@@ -156,7 +161,7 @@ mod tests {
     #[test]
     fn commands_serialize_to_the_lines_minerve_reads() {
         let line = |c: &Command| serde_json::to_string(c).unwrap();
-        assert_eq!(line(&Command::Submit { text: "hi".into() }), r#"{"type":"submit","text":"hi"}"#);
+        assert_eq!(line(&Command::Submit { text: "hi".into(), images: Vec::new() }), r#"{"type":"submit","text":"hi"}"#);
         assert_eq!(line(&Command::Cancel {}), r#"{"type":"cancel"}"#);
         assert_eq!(line(&Command::NewSession {}), r#"{"type":"new_session"}"#);
         assert_eq!(line(&Command::Goal { goal: "x".into() }), r#"{"type":"goal","goal":"x"}"#);

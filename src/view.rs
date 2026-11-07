@@ -1,8 +1,10 @@
-//! The window: chat, usage line, status line, message box and hint line, in the TUI's order.
+//! `MinerveView`: chat, status line, message box, and the tinted bar with cwd and usage.
+//! It draws inside whatever `Ui` it is given: the whole window in minerve-gui, a pane in an app
+//! that embeds it.
 
 use eframe::egui::{self, RichText};
 
-use crate::backend::{self, Backend, BackendEvent};
+use crate::backend::{self, Backend, BackendEvent, Launcher};
 use crate::boot::BootClip;
 use crate::bottom_bar;
 use crate::chat_view::ChatView;
@@ -12,9 +14,8 @@ use crate::input_box::{InputAction, InputBox};
 use crate::modals::{KeysModal, McpModal, Modal, ModalAction, ModelModal, SessionModal};
 use crate::protocol::{AgentState, Command, Event};
 use crate::toys::{Toy, ToyStatus};
-use crate::{boot_view, theme, Args};
+use crate::{boot_view, theme};
 
-const HINT: &str = "Enter send · Shift+Enter newline · Esc cancel turn · Up/Down history · Ctrl+O tool output · /clear new chat · /help";
 /// ASCII: the braille spinner is not in the mono font.
 const SPINNER: [char; 4] = ['|', '/', '-', '\\'];
 const PROTOCOL_VERSION: u32 = 1;
@@ -28,8 +29,27 @@ enum Awaiting {
     Apps,
 }
 
-pub struct MinerveApp {
-    args: Args,
+/// What a `MinerveView` starts with.
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+    /// A session id to resume instead of starting a new chat.
+    pub resume: Option<String>,
+    pub launcher: Launcher,
+    /// Send this prompt as soon as minerve is up.
+    pub submit: Option<String>,
+    /// Start with this typed in the message box.
+    pub prefill: Option<String>,
+    /// `--screenshot <png>` of minerve-gui: save a picture of the window and exit.
+    pub screenshot: Option<std::path::PathBuf>,
+    pub screenshot_after: std::time::Duration,
+}
+
+/// Each view in a process gets its own panel ids.
+static NEXT_VIEW: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+pub struct MinerveView {
+    id: egui::Id,
+    args: Options,
     backend: Option<Backend>,
     /// minerve is starting on another thread (up to 10 s), so the window stays responsive.
     starting: Option<std::sync::mpsc::Receiver<Result<Backend, String>>>,
@@ -39,6 +59,8 @@ pub struct MinerveApp {
     notices: Vec<String>,
     status: String,
     usage: String,
+    /// The running model, for the pill in the message box. Empty until minerve said.
+    model: String,
     working: bool,
     tools_expanded: bool,
     boot: Option<BootClip>,
@@ -70,13 +92,15 @@ pub struct MinerveApp {
     screenshot: Option<Screenshot>,
 }
 
-impl MinerveApp {
-    pub fn new(cc: &eframe::CreationContext<'_>, args: Args) -> Self {
-        theme::apply(&cc.egui_ctx);
+impl MinerveView {
+    /// Starts minerve in the background; `show` draws the view. Leaves the app's style alone:
+    /// minerve-gui calls `theme::apply` for the whole window.
+    pub fn new(ctx: &egui::Context, args: Options) -> Self {
         // The boot clip is for fresh sessions only, like the TUI's. It starts when minerve sends it.
         let skip_boot = args.resume.is_some() || std::env::var_os("MINERVE_NO_BOOT").is_some();
         let screenshot = args.screenshot.clone().map(|path| Screenshot::new(path, args.screenshot_after));
         let mut app = Self {
+            id: egui::Id::new(("minerve-view", NEXT_VIEW.fetch_add(1, std::sync::atomic::Ordering::Relaxed))),
             args,
             backend: None,
             starting: None,
@@ -85,6 +109,7 @@ impl MinerveApp {
             notices: Vec::new(),
             status: String::new(),
             usage: String::new(),
+            model: String::new(),
             working: false,
             tools_expanded: false,
             boot: None,
@@ -93,7 +118,7 @@ impl MinerveApp {
             modal: None,
             toy: None,
             startup_submit: None,
-            ctx: cc.egui_ctx.clone(),
+            ctx: ctx.clone(),
             shell_jobs: Vec::new(),
             pending_shell: Vec::new(),
             last_mcp_poll: std::time::Instant::now(),
@@ -105,7 +130,7 @@ impl MinerveApp {
             input: InputBox::new(),
             screenshot,
         };
-        app.start_backend(&cc.egui_ctx);
+        app.start_backend(ctx);
         app.startup_submit = app.args.submit.clone();
         if let Some(text) = app.args.prefill.clone() {
             app.input.text = text;
@@ -118,11 +143,11 @@ impl MinerveApp {
         self.error = None;
         self.status = "starting minerve...".to_string();
         let resume = self.session_id.clone().or_else(|| self.args.resume.clone());
-        let minerve = self.args.minerve.clone();
+        let launcher = self.args.launcher.clone();
         let ctx = ctx.clone();
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let started = Backend::start(resume.as_deref(), minerve.as_deref(), ctx.clone());
+            let started = Backend::start(resume.as_deref(), &launcher, ctx.clone());
             let _ = tx.send(started);
             ctx.request_repaint();
         });
@@ -209,6 +234,10 @@ impl MinerveApp {
                 if self.has_feature("intro") {
                     self.send(Command::GetIntro {});
                 }
+                // Only for the model pill: no modal opens, since nothing is awaited.
+                if self.has_feature("models") {
+                    self.send(Command::ListModels {});
+                }
                 // With an intro coming, wait for it: /bootscreen needs the clip.
                 if !self.has_feature("intro") {
                     if let Some(text) = self.startup_submit.take() {
@@ -233,7 +262,10 @@ impl MinerveApp {
             Event::Usage { summary } => self.usage = summary,
             Event::Session { session_id } => self.session_id = Some(session_id),
             Event::Models { current, recent, lists } => {
-                if self.awaiting.take() == Some(Awaiting::Models) {
+                self.model = current.clone();
+                // The startup ask for the pill awaits nothing: leave another modal's wait alone.
+                if self.awaiting == Some(Awaiting::Models) {
+                    self.awaiting = None;
                     self.modal = Some(Modal::Models(ModelModal::new(current, recent, lists)));
                 }
             }
@@ -301,7 +333,9 @@ impl MinerveApp {
             self.input.remember(trimmed);
             let message = crate::shell::with_context(&self.pending_shell, trimmed);
             self.pending_shell.clear();
-            self.send(Command::Submit { text: message });
+            let images = self.input.take_images(trimmed);
+            let images = if self.has_feature("images") { images } else { Vec::new() };
+            self.send(Command::Submit { text: message, images });
             return;
         }
         if trimmed == "/clear" {
@@ -376,6 +410,7 @@ impl MinerveApp {
             ModalAction::Send(command) => self.send(command),
             ModalAction::SetModel(model) => {
                 self.modal = None;
+                self.model = model.clone();
                 self.send(Command::SetModel { model });
             }
             ModalAction::Resume(id) => {
@@ -431,12 +466,13 @@ impl MinerveApp {
     }
 }
 
-impl eframe::App for MinerveApp {
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        theme::BACKGROUND.to_normalized_gamma_f32()
-    }
-
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+impl MinerveView {
+    /// Draws the view in all of `ui`, styled like minerve whatever the app's style is.
+    pub fn show(&mut self, ui: &mut egui::Ui) {
+        let ctx = &ui.ctx().clone();
+        theme::style(ui.style_mut());
+        let view_rect = ui.max_rect();
+        ui.painter().rect_filled(view_rect, 0.0, theme::BACKGROUND);
         self.drain_events();
         self.handle_keys(ctx);
         if let Some(screenshot) = self.screenshot.as_mut() {
@@ -450,43 +486,69 @@ impl eframe::App for MinerveApp {
         };
         let no_frame = egui::Frame::NONE.fill(theme::BACKGROUND).inner_margin(theme::CHAT_MARGIN);
 
-        egui::TopBottomPanel::bottom("hint").frame(panel(6, 10)).show_separator_line(false).show(ctx, |ui| {
-            ui.label(bottom_bar::hint_job(HINT));
-        });
+        egui::Panel::bottom(self.id.with("status_bar"))
+            .frame(egui::Frame::NONE.fill(theme::BAR).inner_margin(egui::Margin::symmetric(theme::PANEL_MARGIN, 5)))
+            .show_separator_line(false)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(bottom_bar::tilde_cwd()).font(theme::small()).color(theme::DARK_GRAY));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if self.usage.is_empty() {
+                            ui.label(RichText::new("no turns yet").font(theme::small()).color(theme::DIM));
+                        } else {
+                            ui.label(bottom_bar::usage_job(&self.usage));
+                        }
+                    });
+                });
+            });
         let mut submitted = None;
-        egui::TopBottomPanel::bottom("input").frame(panel(10, 0)).show_separator_line(false).show(ctx, |ui| {
+        let mut input_action = InputAction::None;
+        egui::Panel::bottom(self.id.with("input")).frame(panel(4, 12)).show_separator_line(false).show(ui, |ui| {
             // A toy reads the keys itself.
             if self.toy.is_none() {
-                if let InputAction::Send(text) = self.input.show(ui) {
-                    submitted = Some(text);
-                }
+                input_action = self.input.show(ui, &self.model, self.working);
             }
         });
-        egui::TopBottomPanel::bottom("status").frame(panel(0, 0)).show_separator_line(false).show(ctx, |ui| {
-            let status = if self.working {
+        if let Some(error) = self.input.paste_error.take() {
+            self.status = error;
+        }
+        match input_action {
+            InputAction::Send(text) => submitted = Some(text),
+            InputAction::OpenModels => {
+                if let Some(command) = self.server_command("/model") {
+                    self.send(command);
+                }
+            }
+            InputAction::Cancel => {
+                if self.has_feature("cancel") {
+                    self.send(Command::Cancel {});
+                }
+            }
+            InputAction::None => {}
+        }
+        egui::Panel::bottom(self.id.with("status")).frame(panel(10, 2)).show_separator_line(false).show(ui, |ui| {
+            if self.working {
                 let frame = (ctx.input(|input| input.time) * 8.0) as usize % SPINNER.len();
                 ctx.request_repaint_after(std::time::Duration::from_millis(125));
-                format!("{} {}", SPINNER[frame], if self.status.is_empty() { "working..." } else { &self.status })
+                let status = if self.status.is_empty() { "working..." } else { &self.status };
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("{} {status}", SPINNER[frame])).font(theme::small()).color(theme::MAGENTA));
+                    ui.label(RichText::new("  ·  esc to stop").font(theme::small()).color(theme::DARK_GRAY));
+                });
             } else {
-                self.status.clone()
-            };
-            ui.label(RichText::new(status).font(theme::small()).color(theme::MAGENTA));
-        });
-        egui::TopBottomPanel::bottom("usage").frame(panel(9, 2)).show_separator_line(false).show(ctx, |ui| {
-            let line = ui.max_rect().top() - 9.0;
-            ui.painter().hline(ui.max_rect().x_range(), line, egui::Stroke::new(1.0, theme::HAIRLINE));
-            ui.label(bottom_bar::usage_job(&self.usage));
+                ui.label(RichText::new(&self.status).font(theme::small()).color(theme::MAGENTA));
+            }
         });
 
-        egui::CentralPanel::default().frame(no_frame).show(ctx, |ui| {
+        egui::CentralPanel::default().frame(no_frame).show(ui, |ui| {
             if let Some(error) = self.error.clone() {
                 self.show_error(ui, &error);
                 return;
             }
-            // The terminal views (boot clip, matrix, tetris) run to the window's left, right and
+            // The terminal views (boot clip, matrix, tetris) run to the view's left, right and
             // top edges; only the chat keeps its reading margins.
             let content = ui.available_rect_before_wrap();
-            let window = ctx.screen_rect();
+            let window = view_rect;
             let rect = egui::Rect::from_min_max(window.min, egui::pos2(window.max.x, content.max.y));
             if let Some(toy) = self.toy.as_mut() {
                 if toy.show(ui, rect) == ToyStatus::Done {

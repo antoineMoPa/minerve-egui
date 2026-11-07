@@ -111,7 +111,7 @@ impl MatrixRain {
             return ToyStatus::Done;
         }
         let font = theme::mono();
-        let (glyph_width, row_height) = ui.fonts(|fonts| (fonts.glyph_width(&font, 'x'), fonts.row_height(&font)));
+        let (glyph_width, row_height) = ui.fonts_mut(|fonts| (fonts.glyph_width(&font, 'x'), fonts.row_height(&font)));
         let (cols, rows) = ((rect.width() / glyph_width) as u16, (rect.height() / row_height) as u16);
         if cols == 0 || rows == 0 {
             return ToyStatus::Running;

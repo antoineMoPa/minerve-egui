@@ -13,9 +13,10 @@ path = "src/main.rs"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 dirs = "6.0.0"
-eframe = "0.32"
-egui_commonmark = "0.21"
+eframe = "0.36"
+egui_commonmark = "0.25"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
+arboard = { version = "3", default-features = false, features = ["image-data"] }
 winit = { version = "0.30", default-features = false }
 
 [profile.release]

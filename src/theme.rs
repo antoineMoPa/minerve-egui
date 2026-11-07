@@ -16,6 +16,8 @@ pub const SEP: Color32 = Color32::from_rgb(0x3d, 0x46, 0x4c);
 pub const HAIRLINE: Color32 = Color32::from_rgb(0x1d, 0x25, 0x2a);
 /// Fill of the message box, a step above the background.
 pub const SURFACE: Color32 = Color32::from_rgb(0x13, 0x1a, 0x1e);
+/// The tinted status bar along the bottom edge; the TUI's top bar uses the same color.
+pub const BAR: Color32 = Color32::from_rgb(31, 42, 48);
 /// The queued shell output block.
 pub const YELLOW: Color32 = Color32::from_rgb(0xe0, 0xb8, 0x4a);
 /// Names of tools and the keys in the hint line.
@@ -54,10 +56,17 @@ fn install_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
+/// The whole app's look, for the standalone window: dark theme, system sans, and `style` everywhere.
 pub fn apply(ctx: &egui::Context) {
     ctx.set_theme(egui::Theme::Dark);
     install_fonts(ctx);
-    ctx.all_styles_mut(|style| {
+    ctx.all_styles_mut(style);
+}
+
+/// minerve's look on one style. An app that embeds `MinerveView` keeps its own fonts and
+/// theme; the view applies this to its own `Ui` only.
+pub fn style(style: &mut egui::Style) {
+    {
         style.text_styles.insert(TextStyle::Body, FontId::new(14.0, FontFamily::Proportional));
         style.text_styles.insert(TextStyle::Heading, FontId::new(18.0, FontFamily::Proportional));
         style.text_styles.insert(TextStyle::Button, FontId::new(13.0, FontFamily::Monospace));
@@ -90,5 +99,5 @@ pub fn apply(ctx: &egui::Context) {
         visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, CYAN);
         visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, WHITE);
         style.spacing.item_spacing = egui::vec2(0.0, 0.0);
-    });
+    }
 }

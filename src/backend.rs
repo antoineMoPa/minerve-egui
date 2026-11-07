@@ -1,4 +1,6 @@
-//! The minerve behind the window: a `minerve --serve` child that connects to a socket we listen on.
+//! The minerve behind the view: a `minerve --serve` child that connects to a socket we listen on.
+//! `Launcher` says which program that is: the installed `minerve`, or an app that links minerve
+//! and serves it from its own executable (`moon __minerve --serve`).
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -12,6 +14,20 @@ use crate::protocol::{Command, Event};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const CLEAN_EXIT_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// How to start the minerve to talk to. `--serve` (and `--resume <id>`) are added after `args`.
+#[derive(Clone, Debug, Default)]
+pub struct Launcher {
+    /// `None`: the `minerve` next to this executable, else in the install folders, else on PATH.
+    pub program: Option<PathBuf>,
+    /// Put before `--serve`, e.g. `["__minerve"]` for an app serving minerve as a subcommand.
+    pub args: Vec<String>,
+    /// The folder minerve works in (its tools run there). `None`: this process's.
+    pub workdir: Option<PathBuf>,
+}
+
+/// Each view in this process listens on its own socket.
+static NEXT_SOCKET: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 pub enum BackendEvent {
     Event(Event),
@@ -60,22 +76,27 @@ fn last_log_lines(count: usize) -> String {
 
 impl Backend {
     /// Starts minerve and waits for it to connect. `resume` is a session id for `--resume`.
-    pub fn start(resume: Option<&str>, minerve: Option<&Path>, ctx: eframe::egui::Context) -> Result<Self, String> {
+    pub fn start(resume: Option<&str>, launcher: &Launcher, ctx: eframe::egui::Context) -> Result<Self, String> {
         std::fs::create_dir_all(minerve_dir()).map_err(|err| format!("cannot create ~/.minerve: {err}"))?;
-        let socket_path = minerve_dir().join(format!("gui-{}.sock", std::process::id()));
+        let index = NEXT_SOCKET.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let socket_path = minerve_dir().join(format!("gui-{}-{index}.sock", std::process::id()));
         let _ = std::fs::remove_file(&socket_path);
         let listener = UnixListener::bind(&socket_path)
             .map_err(|err| format!("cannot listen on {}: {err}", socket_path.display()))?;
         listener.set_nonblocking(true).map_err(|err| err.to_string())?;
 
-        let executable = minerve_executable(minerve);
+        let executable = minerve_executable(launcher.program.as_deref());
         let log = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(log_path())
             .map_err(|err| format!("cannot open {}: {err}", log_path().display()))?;
         let mut command = Process::new(&executable);
+        if let Some(workdir) = &launcher.workdir {
+            command.current_dir(workdir);
+        }
         command
+            .args(&launcher.args)
             .arg("--serve")
             .env("MINERVE_CONTROL_SOCKET", &socket_path)
             .stdin(Stdio::null())

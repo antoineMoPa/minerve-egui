@@ -76,12 +76,13 @@ pub(crate) fn run_frame(ctx: &egui::Context, toy: &mut Toy, keys: &[egui::Key]) 
         ..Default::default()
     };
     let mut status = ToyStatus::Running;
-    let _ = ctx.run(input, |ctx| {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            let rect = ui.max_rect();
-            status = toy.show(ui, rect);
-        });
-    });
+    // No renderer here: drop the font texture upload egui asks for.
+    ctx.run_ui(input, |ui| {
+        let rect = ui.max_rect();
+        status = toy.show(ui, rect);
+    })
+    .textures_delta
+    .clear();
     status
 }
 

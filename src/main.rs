@@ -1,48 +1,12 @@
-//! minerve-gui: a window for minerve. It starts a `minerve --serve` and talks to it over a Unix
-//! socket (see `protocol` and `backend`). The look follows the TUI (see `theme`).
-//! Nothing is shared with minerve's source: the boot clip and the tips arrive in the `intro` event.
-
-
-mod app;
-mod backend;
-mod boot;
-mod bottom_bar;
-mod boot_view;
-mod chat_view;
-mod input_box;
-mod modal_apps;
-mod modals;
-mod protocol;
-mod screenshot;
-mod shell;
-mod slash;
-mod theme;
-mod tips;
-mod toys;
+//! minerve-gui: a window for minerve. The view itself is the library (`src/lib.rs`).
 
 use std::path::PathBuf;
 
-pub struct Args {
-    pub resume: Option<String>,
-    pub minerve: Option<PathBuf>,
-    /// `--screenshot <png>`: save a picture of the window and exit, without showing the window.
-    pub screenshot: Option<PathBuf>,
-    pub screenshot_after: std::time::Duration,
-    /// `--submit <text>`: send this prompt as soon as minerve is up (for headless checks).
-    pub submit: Option<String>,
-    /// `--prefill <text>`: start with this typed in the message box (for headless checks).
-    pub prefill: Option<String>,
-}
+use eframe::egui;
+use minerve_gui::{theme, MinerveView, Options};
 
-fn parse_args() -> Args {
-    let mut args = Args {
-        resume: None,
-        minerve: None,
-        screenshot: None,
-        screenshot_after: std::time::Duration::from_millis(1500),
-        submit: None,
-        prefill: None,
-    };
+fn parse_args() -> Options {
+    let mut args = Options { screenshot_after: std::time::Duration::from_millis(1500), ..Default::default() };
     let mut iter = std::env::args().skip(1);
     while let Some(arg) = iter.next() {
         match arg.as_str() {
@@ -55,7 +19,7 @@ fn parse_args() -> Args {
                 std::process::exit(0);
             }
             "--resume" => args.resume = iter.next(),
-            "--minerve" => args.minerve = iter.next().map(PathBuf::from),
+            "--minerve" => args.launcher.program = iter.next().map(PathBuf::from),
             "--submit" => args.submit = iter.next(),
             "--prefill" => args.prefill = iter.next(),
             "--screenshot" => args.screenshot = iter.next().map(PathBuf::from),
@@ -96,5 +60,25 @@ fn main() -> eframe::Result {
             builder.with_activate_ignoring_other_apps(false);
         }));
     }
-    eframe::run_native("minerve", options, Box::new(|cc| Ok(Box::new(app::MinerveApp::new(cc, args)))))
+    eframe::run_native(
+        "minerve",
+        options,
+        Box::new(|cc| {
+            theme::apply(&cc.egui_ctx);
+            Ok(Box::new(Window(MinerveView::new(&cc.egui_ctx, args))))
+        }),
+    )
+}
+
+/// The standalone window: one view filling it.
+struct Window(MinerveView);
+
+impl eframe::App for Window {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        theme::BACKGROUND.to_normalized_gamma_f32()
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.0.show(ui);
+    }
 }

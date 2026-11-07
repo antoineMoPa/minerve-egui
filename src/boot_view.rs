@@ -18,7 +18,7 @@ fn color(shade: BootShade) -> Color32 {
 pub fn paint(ui: &egui::Ui, rect: Rect, boot: &BootClip) {
     ui.painter().rect_filled(rect, 0.0, theme::BACKGROUND);
     let font = theme::mono();
-    let (glyph_width, row_height) = ui.fonts(|fonts| (fonts.glyph_width(&font, 'x'), fonts.row_height(&font)));
+    let (glyph_width, row_height) = ui.fonts_mut(|fonts| (fonts.glyph_width(&font, 'x'), fonts.row_height(&font)));
     let cols = (rect.width() / glyph_width).floor() as i32;
     let rows = (rect.height() / row_height).floor() as i32;
     if cols < 1 || rows < 1 {
