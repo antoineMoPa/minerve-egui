@@ -1,6 +1,6 @@
 [package]
 name = "minerve-gui"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 repository = "https://github.com/antoineMoPa/minerve-egui"
 description = "Window for minerve, driving a `minerve --serve` over a Unix socket"
