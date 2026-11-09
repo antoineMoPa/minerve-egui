@@ -99,6 +99,8 @@ pub enum Command {
     NewSession {},
     GetIntro {},
     Goal { goal: String },
+    /// `/budget <arg>`: minerve answers with a notice.
+    Budget { arg: String },
     ListModels {},
     SetModel { model: String },
     ListSessions {},
@@ -168,6 +170,7 @@ mod tests {
         assert_eq!(line(&Command::Cancel {}), r#"{"type":"cancel"}"#);
         assert_eq!(line(&Command::NewSession {}), r#"{"type":"new_session"}"#);
         assert_eq!(line(&Command::Goal { goal: "x".into() }), r#"{"type":"goal","goal":"x"}"#);
+        assert_eq!(line(&Command::Budget { arg: "2".into() }), r#"{"type":"budget","arg":"2"}"#);
         assert_eq!(line(&Command::ListModels {}), r#"{"type":"list_models"}"#);
         assert_eq!(line(&Command::MessageAppsManifest { bot_name: "b".into() }), r#"{"type":"message_apps_manifest","bot_name":"b"}"#);
         assert_eq!(line(&Command::McpRemove { name: "a".into() }), r#"{"type":"mcp_remove","name":"a"}"#);

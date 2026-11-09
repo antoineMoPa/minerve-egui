@@ -68,6 +68,21 @@ fn roomy(ui: &mut egui::Ui) {
     spacing.interact_size.y = 26.0;
 }
 
+/// Id separators read as spaces, so `fable 5.5` finds `claude-fable-5-5`.
+fn normalize(text: &str) -> String {
+    text.to_lowercase().chars().map(|c| if matches!(c, '-' | '.' | '_' | '/' | ':') { ' ' } else { c }).collect()
+}
+
+/// The filter's space-separated words, each normalized; all must match, in any order.
+fn filter_tokens(filter: &str) -> Vec<String> {
+    filter.split_whitespace().map(normalize).map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect()
+}
+
+fn matches_tokens(id: &str, tokens: &[String]) -> bool {
+    let id = normalize(id);
+    tokens.iter().all(|token| id.contains(token.as_str()))
+}
+
 pub struct ModelModal {
     current: String,
     recent: Vec<String>,
@@ -83,9 +98,9 @@ impl ModelModal {
 
     /// Recent models matching the filter, then every other matching model in provider order.
     fn rows(&self) -> Vec<(String, bool)> {
-        let needle = self.filter.to_lowercase();
+        let tokens = filter_tokens(&self.filter);
         let all: Vec<&String> = self.lists.iter().flat_map(|list| list.models.iter()).collect();
-        let matches = |id: &str| id.to_lowercase().contains(&needle);
+        let matches = |id: &str| matches_tokens(id, &tokens);
         let recent = self.recent.iter().filter(|id| all.contains(id) && matches(id)).map(|id| (id.clone(), true));
         let others = all.iter().filter(|id| !self.recent.contains(id) && matches(id)).map(|id| ((*id).clone(), false));
         recent.chain(others).collect()
@@ -395,6 +410,15 @@ mod tests {
         modal.filter = "B/".into();
         let ids: Vec<String> = modal.rows().into_iter().map(|(id, _)| id).collect();
         assert_eq!(ids, ["b/z", "b/y"]);
+        modal.filter = "y b".into();
+        let ids: Vec<String> = modal.rows().into_iter().map(|(id, _)| id).collect();
+        assert_eq!(ids, ["b/y"]);
+    }
+
+    #[test]
+    fn separators_and_spaces_are_interchangeable() {
+        assert!(matches_tokens("anthropic/claude-fable-5-5", &filter_tokens("fable 5.5")));
+        assert!(!matches_tokens("anthropic/claude-fable-5-1", &filter_tokens("fable 5.5")));
     }
 
     #[test]

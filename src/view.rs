@@ -393,7 +393,7 @@ impl MinerveView {
         } else if trimmed == "/about" {
             self.notices.push("minerve-gui: a window for minerve. It runs `minerve --serve` and talks to it over the control socket.".to_string());
         } else if trimmed == "/help" {
-            self.notices.push("Available: /model /resume /goal <goal> /apikeys /mcp /message-apps /clear /bootscreen /matrix /tetris /about /help.".to_string());
+            self.notices.push("Available: /model /resume /goal <goal> /budget <usd> /apikeys /mcp /message-apps /clear /bootscreen /matrix /tetris /about /help.".to_string());
         } else {
             self.notices.push(format!("{first_word} is not in minerve-gui yet. Type /help; the terminal app (minerve) has it."));
         }
@@ -406,6 +406,7 @@ impl MinerveView {
         let (name, rest) = text.split_once(char::is_whitespace).unwrap_or((text, ""));
         let (feature, command, awaiting) = match name {
             "/goal" if !rest.trim().is_empty() => ("goal", Command::Goal { goal: rest.trim().to_string() }, None),
+            "/budget" => ("budget", Command::Budget { arg: rest.trim().to_string() }, None),
             "/model" => ("models", Command::ListModels {}, Some(Awaiting::Models)),
             "/resume" => ("sessions", Command::ListSessions {}, Some(Awaiting::Sessions)),
             "/message-apps" => ("message_apps", Command::MessageAppsStatus {}, Some(Awaiting::Apps)),
@@ -438,7 +439,17 @@ impl MinerveView {
             ctx.request_repaint_after(std::time::Duration::from_secs(1));
         }
         let Some(modal) = self.modal.as_mut() else { return };
-        match modal.show(ctx) {
+        let action = modal.show(ctx);
+        self.act_on_modal(action);
+        // The modal's own box had the keyboard: hand it back to the view's box, or (embedded in
+        // moon) it lands on another pane.
+        if self.modal.is_none() {
+            ctx.memory_mut(|memory| memory.request_focus(self.input.id));
+        }
+    }
+
+    fn act_on_modal(&mut self, action: ModalAction) {
+        match action {
             ModalAction::None => {}
             ModalAction::Close => self.modal = None,
             ModalAction::Send(command) => self.send(command),

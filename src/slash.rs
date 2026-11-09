@@ -5,10 +5,11 @@ use eframe::egui::{self, Align2, RichText};
 use crate::theme;
 
 /// Name and one-line description, in the order the terminal app lists them (`/help` is ours).
-pub const COMMANDS: [(&str, &str); 12] = [
+pub const COMMANDS: [(&str, &str); 13] = [
     ("/about", "describe Minerve"),
     ("/model", "switch models and providers"),
     ("/goal", "keep working until an evaluator model judges the goal reached: /goal <goal>"),
+    ("/budget", "pause once the session costs this much: /budget <usd>, /budget off"),
     ("/resume", "continue a saved session"),
     ("/clear", "start a new conversation from fresh"),
     ("/apikeys", "set the OpenRouter, OpenAI and Anthropic keys"),
