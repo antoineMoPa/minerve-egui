@@ -490,6 +490,19 @@ impl MinerveView {
         true
     }
 
+    /// Stop, from the button or Esc. Queued messages go back to the message box, oldest first:
+    /// a turn that ends would send the next one, and the stop would start a turn.
+    fn stop_running_turn(&mut self, ctx: &egui::Context) {
+        while self.take_back_newest_queued_message(ctx) {}
+        if self.has_feature("cancel") {
+            self.send(Command::Cancel {});
+        } else {
+            self.notices.push(
+                "this minerve cannot stop a turn from minerve-gui: update minerve".to_string(),
+            );
+        }
+    }
+
     /// The command for a slash command minerve serves, when this minerve lists its feature.
     /// Sets what to open once minerve answers.
     fn server_command(&mut self, text: &str) -> Option<Command> {
@@ -632,8 +645,8 @@ impl MinerveView {
         // Esc takes queued messages back first, newest first; then it stops the turn.
         if escape && !dismissed_boot && self.modal.is_none() && self.toy.is_none() {
             let took_back = self.take_back_newest_queued_message(ctx);
-            if !took_back && self.working && self.has_feature("cancel") {
-                self.send(Command::Cancel {});
+            if !took_back && self.working {
+                self.stop_running_turn(ctx);
             }
         }
         if tools {
@@ -788,11 +801,7 @@ impl MinerveView {
                     self.send(command);
                 }
             }
-            InputAction::Cancel => {
-                if self.has_feature("cancel") {
-                    self.send(Command::Cancel {});
-                }
-            }
+            InputAction::Cancel => self.stop_running_turn(ctx),
             InputAction::None => {}
         }
         egui::Panel::bottom(self.id.with("status"))

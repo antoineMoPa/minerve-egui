@@ -172,8 +172,8 @@ impl InputBox {
         }
     }
 
-    /// `model` is empty until minerve said which one runs. `working` turns send into stop, or
-    /// into queue once something is typed.
+    /// `model` is empty until minerve said which one runs. `working` adds the stop button, and
+    /// turns send into queue once something is typed.
     pub fn show(&mut self, ui: &mut egui::Ui, model: &str, working: bool) -> InputAction {
         let ctx = ui.ctx().clone();
         let focused = ctx.memory(|memory| memory.has_focus(self.id));
@@ -261,38 +261,21 @@ impl InputBox {
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let typed = !self.text.trim().is_empty();
-                    let stops = working && !typed;
-                    let (text, color, fill) = if stops {
-                        ("\u{25a0} stop", theme::c().magenta, theme::c().surface)
+                    // While a turn runs, text in the box is a message to queue; the turn can
+                    // still be stopped, so stop keeps its own button next to it.
+                    if working && typed {
+                        if draw_send_button(ui, "queue \u{21b5}", true).clicked() {
+                            action = InputAction::Send(std::mem::take(&mut self.text));
+                        }
+                        if draw_stop_button(ui).clicked() {
+                            action = InputAction::Cancel;
+                        }
                     } else if working {
-                        ("queue \u{21b5}", theme::c().background, theme::c().accent)
-                    } else {
-                        ("send \u{21b5}", theme::c().background, theme::c().accent)
-                    };
-                    let enabled = working || typed;
-                    let button = egui::Button::new(
-                        RichText::new(text)
-                            .font(theme::small())
-                            .color(color)
-                            .strong(),
-                    )
-                    .fill(if enabled { fill } else { theme::c().hairline })
-                    .stroke(Stroke::new(
-                        1.0,
-                        if stops {
-                            theme::c().magenta
-                        } else {
-                            egui::Color32::TRANSPARENT
-                        },
-                    ))
-                    .corner_radius(4)
-                    .min_size(egui::vec2(0.0, 22.0));
-                    if ui.add_enabled(enabled, button).clicked() {
-                        action = if stops {
-                            InputAction::Cancel
-                        } else {
-                            InputAction::Send(std::mem::take(&mut self.text))
-                        };
+                        if draw_stop_button(ui).clicked() {
+                            action = InputAction::Cancel;
+                        }
+                    } else if draw_send_button(ui, "send \u{21b5}", typed).clicked() {
+                        action = InputAction::Send(std::mem::take(&mut self.text));
                     }
                 });
             });
@@ -362,4 +345,36 @@ mod tests {
         frame(&ctx, &mut input, &[Key::Tab]);
         assert!(input.text.starts_with("/Users/me/x.rs"));
     }
+}
+
+fn draw_send_button(ui: &mut egui::Ui, text: &str, enabled: bool) -> egui::Response {
+    let button = egui::Button::new(
+        RichText::new(text)
+            .font(theme::small())
+            .color(theme::c().background)
+            .strong(),
+    )
+    .fill(if enabled {
+        theme::c().accent
+    } else {
+        theme::c().hairline
+    })
+    .corner_radius(4)
+    .min_size(egui::vec2(0.0, 22.0));
+    ui.add_enabled(enabled, button)
+}
+
+/// Shown the whole time a turn runs, like Esc.
+fn draw_stop_button(ui: &mut egui::Ui) -> egui::Response {
+    let button = egui::Button::new(
+        RichText::new("\u{25a0} stop")
+            .font(theme::small())
+            .color(theme::c().magenta)
+            .strong(),
+    )
+    .fill(theme::c().surface)
+    .stroke(Stroke::new(1.0, theme::c().magenta))
+    .corner_radius(4)
+    .min_size(egui::vec2(0.0, 22.0));
+    ui.add(button).on_hover_text("Stop the turn (Esc)")
 }

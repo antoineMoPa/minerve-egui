@@ -82,3 +82,30 @@ fn a_new_session_drops_the_queue() {
     view.submit("/clear".to_string());
     assert!(view.queue.is_empty());
 }
+
+fn count_cancels(sent: &Arc<Mutex<Vec<String>>>) -> usize {
+    sent.lock()
+        .unwrap()
+        .iter()
+        .filter(|line| line.contains(r#""type":"cancel""#))
+        .count()
+}
+
+#[test]
+fn a_stop_cancels_the_turn_and_no_queued_message_starts_another() {
+    let ctx = egui::Context::default();
+    let (mut view, sent) = attach_view_to_recording_minerve(&ctx);
+    view.submit("one".to_string());
+    view.submit("two".to_string());
+    view.submit("three".to_string());
+    view.input.text = "draft".to_string();
+
+    view.stop_running_turn(&ctx);
+    assert_eq!(count_cancels(&sent), 1);
+    assert!(view.queue.is_empty());
+    assert_eq!(view.input.text, "two\nthree\ndraft");
+
+    end_turn(&mut view);
+    assert_eq!(list_submitted_texts(&sent), ["one"]);
+    assert!(!view.working, "the stop left no turn running");
+}
