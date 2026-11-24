@@ -102,6 +102,7 @@ impl ChatView {
         transcript: &[(String, String)],
         notices: &[String],
         pending_shell: &[String],
+        queued: &[&str],
         tools_expanded: bool,
     ) {
         egui::ScrollArea::vertical()
@@ -166,6 +167,12 @@ impl ChatView {
                         },
                     );
                 }
+                // Messages sent while a turn runs: each goes once the turn before it ends.
+                for message in queued {
+                    self.message(ui, "You (queued)", theme::c().dark_gray, |ui, _| {
+                        ui.label(RichText::new(*message).color(theme::c().gray));
+                    });
+                }
                 // Results of local commands. Not sent to the model.
                 for notice in notices {
                     self.message(ui, "Command", theme::c().accent, |ui, _| {
@@ -213,7 +220,7 @@ mod tests {
             ..Default::default()
         };
         // No renderer here: drop the font texture upload egui asks for.
-        ctx.run_ui(raw, |ui| chat.show(ui, &transcript, &[], &[], false))
+        ctx.run_ui(raw, |ui| chat.show(ui, &transcript, &[], &[], &[], false))
             .textures_delta
             .clear();
     }

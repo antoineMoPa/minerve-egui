@@ -9,6 +9,7 @@ use crate::boot::BootClip;
 use crate::bottom_bar;
 use crate::chat_view::ChatView;
 use crate::input_box::{InputAction, InputBox};
+use crate::message_queue::{self, MessageQueue, QueuedMessage};
 use crate::modals::{KeysModal, McpModal, Modal, ModalAction, ModelModal, SessionModal};
 use crate::protocol::{AgentState, Command, Event};
 use crate::screenshot::Screenshot;
@@ -87,6 +88,8 @@ pub struct MinerveView {
     ctx: egui::Context,
     shell_jobs: Vec<(String, std::sync::mpsc::Receiver<String>)>,
     pending_shell: Vec<String>,
+    /// Messages sent while a turn runs: one goes each time a turn ends.
+    queue: MessageQueue,
     /// MCP connections change in the background, so the open manager asks again every second.
     last_mcp_poll: std::time::Instant,
     /// Text for the clipboard, copied on the next frame (events have no egui context).
@@ -159,6 +162,7 @@ impl MinerveView {
             ctx: ctx.clone(),
             shell_jobs: Vec::new(),
             pending_shell: Vec::new(),
+            queue: MessageQueue::default(),
             last_mcp_poll: std::time::Instant::now(),
             pending_clipboard: None,
             awaiting: None,
@@ -309,7 +313,12 @@ impl MinerveView {
                     self.submit(text);
                 }
             }
-            Event::State { state } => self.working = state == AgentState::Working,
+            Event::State { state } => {
+                self.working = state == AgentState::Working;
+                if !self.working {
+                    self.send_next_queued_message();
+                }
+            }
             Event::Transcript { messages } => self.transcript = messages,
             Event::Status { status } => self.status = status,
             Event::Notice { notice } => self.notices.push(notice),
@@ -398,29 +407,22 @@ impl MinerveView {
         let first_word = trimmed.split_whitespace().next().unwrap_or("");
         let is_command = first_word.starts_with('/') && !first_word[1..].contains('/');
         if !is_command {
-            if self.working {
-                self.status =
-                    "a turn is running: wait for it, or press Esc to cancel it".to_string();
-                self.input.text = text;
-                return;
-            }
             self.input.remember(trimmed);
-            let message = crate::shell::with_context(&self.pending_shell, trimmed);
-            self.pending_shell.clear();
-            let images = self.input.take_images(trimmed);
-            let images = if self.has_feature("images") {
-                images
-            } else {
-                Vec::new()
+            let message = QueuedMessage {
+                text: trimmed.to_string(),
+                images: self.input.take_images(trimmed),
             };
-            self.send(Command::Submit {
-                text: message,
-                images,
-            });
+            // While a turn runs the message waits; older queued ones go first.
+            if self.working || !self.queue.is_empty() {
+                self.queue.push_message(message);
+            } else {
+                self.send_message(message);
+            }
             return;
         }
         if trimmed == "/clear" {
             self.pending_shell.clear();
+            self.queue.clear_messages();
             if self.has_feature("new_session") {
                 self.send(Command::NewSession {});
             } else {
@@ -452,6 +454,40 @@ impl MinerveView {
             self.notices.push(format!("{first_word} is not in minerve-gui yet. Type /help; the terminal app (minerve) has it."));
         }
         self.input.remember(trimmed);
+    }
+
+    /// Sends `message` as a new turn, with the `!command` outputs kept for it.
+    fn send_message(&mut self, message: QueuedMessage) {
+        let text = crate::shell::with_context(&self.pending_shell, &message.text);
+        self.pending_shell.clear();
+        let images = if self.has_feature("images") {
+            message.images.into_iter().map(|(_, path)| path).collect()
+        } else {
+            Vec::new()
+        };
+        self.send(Command::Submit { text, images });
+        // minerve says `working` a moment later: until then, another message must queue too.
+        self.working = true;
+    }
+
+    /// Sends the oldest queued message; called when minerve says a turn ended.
+    fn send_next_queued_message(&mut self) {
+        if self.backend.is_none() {
+            return;
+        }
+        if let Some(message) = self.queue.take_oldest_message() {
+            self.send_message(message);
+        }
+    }
+
+    /// Esc with messages queued: the newest goes back to the message box. Says whether one did.
+    fn take_back_newest_queued_message(&mut self, ctx: &egui::Context) -> bool {
+        let Some(message) = self.queue.take_newest_message() else {
+            return false;
+        };
+        self.input
+            .put_back_message(ctx, &message.text, message.images);
+        true
     }
 
     /// The command for a slash command minerve serves, when this minerve lists its feature.
@@ -539,6 +575,7 @@ impl MinerveView {
             ModalAction::Resume(id) => {
                 self.modal = None;
                 self.pending_shell.clear();
+                self.queue.clear_messages();
                 self.send(Command::ResumeSession { id });
             }
             ModalAction::SaveKeys {
@@ -592,14 +629,12 @@ impl MinerveView {
             self.boot = None;
             self.skip_boot = true;
         }
-        if escape
-            && !dismissed_boot
-            && self.modal.is_none()
-            && self.toy.is_none()
-            && self.working
-            && self.has_feature("cancel")
-        {
-            self.send(Command::Cancel {});
+        // Esc takes queued messages back first, newest first; then it stops the turn.
+        if escape && !dismissed_boot && self.modal.is_none() && self.toy.is_none() {
+            let took_back = self.take_back_newest_queued_message(ctx);
+            if !took_back && self.working && self.has_feature("cancel") {
+                self.send(Command::Cancel {});
+            }
         }
         if tools {
             self.tools_expanded = !self.tools_expanded;
@@ -778,8 +813,16 @@ impl MinerveView {
                                 .font(theme::small())
                                 .color(theme::c().magenta),
                         );
+                        let hint = if self.queue.is_empty() {
+                            "  ·  esc to stop".to_string()
+                        } else {
+                            format!(
+                                "  ·  {}  ·  esc to edit the last one",
+                                message_queue::describe_count(self.queue.len())
+                            )
+                        };
                         ui.label(
-                            RichText::new("  ·  esc to stop")
+                            RichText::new(hint)
                                 .font(theme::small())
                                 .color(theme::c().dark_gray),
                         );
@@ -817,6 +860,7 @@ impl MinerveView {
                     &self.transcript,
                     &self.notices,
                     &self.pending_shell,
+                    &self.queue.list_texts(),
                     self.tools_expanded,
                 );
                 if let Some(boot) = &self.boot {
@@ -839,3 +883,7 @@ impl MinerveView {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "view_tests.rs"]
+mod tests;

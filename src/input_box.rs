@@ -110,13 +110,28 @@ impl InputBox {
         self.browsing = None;
     }
 
-    /// Images whose token is still in the sent `text`. Starts a new prompt's list.
-    pub fn take_images(&mut self, text: &str) -> Vec<std::path::PathBuf> {
+    /// Images whose token is still in the sent `text`, with their token. Starts a new prompt's list.
+    pub fn take_images(&mut self, text: &str) -> Vec<(String, std::path::PathBuf)> {
         std::mem::take(&mut self.images)
             .into_iter()
             .filter(|(token, _)| text.contains(token.as_str()))
-            .map(|(_, path)| path)
             .collect()
+    }
+
+    /// Puts a message that was queued back in the box, ahead of what is typed, with its images.
+    pub fn put_back_message(
+        &mut self,
+        ctx: &egui::Context,
+        text: &str,
+        images: Vec<(String, std::path::PathBuf)>,
+    ) {
+        let text = if self.text.trim().is_empty() {
+            text.to_string()
+        } else {
+            format!("{text}\n{}", self.text)
+        };
+        self.images.extend(images);
+        self.set_text(ctx, &text);
     }
 
     /// Ctrl+V / Cmd+V with an image on the clipboard: saves it and adds an `[Image #N]` token.
@@ -157,7 +172,8 @@ impl InputBox {
         }
     }
 
-    /// `model` is empty until minerve said which one runs. `working` turns send into stop.
+    /// `model` is empty until minerve said which one runs. `working` turns send into stop, or
+    /// into queue once something is typed.
     pub fn show(&mut self, ui: &mut egui::Ui, model: &str, working: bool) -> InputAction {
         let ctx = ui.ctx().clone();
         let focused = ctx.memory(|memory| memory.has_focus(self.id));
@@ -244,12 +260,16 @@ impl InputBox {
                     action = InputAction::OpenModels;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let (text, color, fill) = if working {
+                    let typed = !self.text.trim().is_empty();
+                    let stops = working && !typed;
+                    let (text, color, fill) = if stops {
                         ("\u{25a0} stop", theme::c().magenta, theme::c().surface)
+                    } else if working {
+                        ("queue \u{21b5}", theme::c().background, theme::c().accent)
                     } else {
                         ("send \u{21b5}", theme::c().background, theme::c().accent)
                     };
-                    let enabled = working || !self.text.trim().is_empty();
+                    let enabled = working || typed;
                     let button = egui::Button::new(
                         RichText::new(text)
                             .font(theme::small())
@@ -259,7 +279,7 @@ impl InputBox {
                     .fill(if enabled { fill } else { theme::c().hairline })
                     .stroke(Stroke::new(
                         1.0,
-                        if working {
+                        if stops {
                             theme::c().magenta
                         } else {
                             egui::Color32::TRANSPARENT
@@ -268,7 +288,7 @@ impl InputBox {
                     .corner_radius(4)
                     .min_size(egui::vec2(0.0, 22.0));
                     if ui.add_enabled(enabled, button).clicked() {
-                        action = if working {
+                        action = if stops {
                             InputAction::Cancel
                         } else {
                             InputAction::Send(std::mem::take(&mut self.text))

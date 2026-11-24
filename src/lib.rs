@@ -15,6 +15,7 @@ mod bottom_bar;
 mod chat_view;
 mod clipboard_image;
 mod input_box;
+mod message_queue;
 mod modal_apps;
 mod modals;
 mod protocol;
