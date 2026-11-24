@@ -50,19 +50,28 @@ fn every_event_parses_and_every_command_is_accepted() {
         .spawn()
         .unwrap();
     let (stream, _) = listener.accept().unwrap();
-    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
     let mut writer = stream.try_clone().unwrap();
     let mut reader = BufReader::new(stream);
 
     let read = |reader: &mut BufReader<_>| -> Event {
         let mut line = String::new();
         reader.read_line(&mut line).expect("read from minerve");
-        let event: Event = serde_json::from_str(&line).unwrap_or_else(|err| panic!("unreadable {line:?}: {err}"));
-        assert_ne!(event, Event::Unknown, "the GUI does not know this event: {line}");
+        let event: Event =
+            serde_json::from_str(&line).unwrap_or_else(|err| panic!("unreadable {line:?}: {err}"));
+        assert_ne!(
+            event,
+            Event::Unknown,
+            "the GUI does not know this event: {line}"
+        );
         event
     };
 
-    let Event::Hello { features, .. } = read(&mut reader) else { panic!("first event is not hello") };
+    let Event::Hello { features, .. } = read(&mut reader) else {
+        panic!("first event is not hello")
+    };
     assert!(features.iter().any(|feature| feature == "serve"));
 
     // Safe commands only: nothing that spends tokens, opens a browser or touches real config.
@@ -73,8 +82,14 @@ fn every_event_parses_and_every_command_is_accepted() {
         Cmd::GetApiKeys {},
         Cmd::ListMcp {},
         Cmd::MessageAppsStatus {},
-        Cmd::McpRemove { name: "nope".into() },
-        Cmd::MessageAppsSave { bot_name: "Bad Name".into(), app_token: None, bot_token: None },
+        Cmd::McpRemove {
+            name: "nope".into(),
+        },
+        Cmd::MessageAppsSave {
+            bot_name: "Bad Name".into(),
+            app_token: None,
+            bot_token: None,
+        },
         Cmd::NewSession {},
         Cmd::Cancel {},
     ];
@@ -82,7 +97,8 @@ fn every_event_parses_and_every_command_is_accepted() {
         writeln!(writer, "{}", serde_json::to_string(command).unwrap()).unwrap();
     }
     // Replies arrive in any order; read until the last one we know to expect, parsing all.
-    let (mut intro, mut models, mut sessions, mut keys, mut mcp, mut apps) = (false, false, false, false, false, false);
+    let (mut intro, mut models, mut sessions, mut keys, mut mcp, mut apps) =
+        (false, false, false, false, false, false);
     for _ in 0..60 {
         match read(&mut reader) {
             Event::Intro { .. } => intro = true,
@@ -97,8 +113,14 @@ fn every_event_parses_and_every_command_is_accepted() {
             break;
         }
     }
-    assert!(intro && models && sessions && keys && mcp && apps, "missing replies: {intro} {models} {sessions} {keys} {mcp} {apps}");
-    assert!(child.try_wait().unwrap().is_none(), "minerve died on a command the GUI sends");
+    assert!(
+        intro && models && sessions && keys && mcp && apps,
+        "missing replies: {intro} {models} {sessions} {keys} {mcp} {apps}"
+    );
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "minerve died on a command the GUI sends"
+    );
 
     let _ = child.kill();
     let _ = child.wait();

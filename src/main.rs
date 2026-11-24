@@ -6,7 +6,10 @@ use eframe::egui;
 use minerve_gui::{theme, MinerveView, Options};
 
 fn parse_args() -> Options {
-    let mut args = Options { screenshot_after: std::time::Duration::from_millis(1500), ..Default::default() };
+    let mut args = Options {
+        screenshot_after: std::time::Duration::from_millis(1500),
+        ..Default::default()
+    };
     let mut iter = std::env::args().skip(1);
     while let Some(arg) = iter.next() {
         match arg.as_str() {
@@ -49,7 +52,10 @@ fn main() -> eframe::Result {
         // Headless: never shown, never focused.
         viewport = viewport.with_visible(false).with_active(false);
     }
-    let mut options = eframe::NativeOptions { viewport, ..Default::default() };
+    let mut options = eframe::NativeOptions {
+        viewport,
+        ..Default::default()
+    };
     #[cfg(target_os = "macos")]
     if args.screenshot.is_some() {
         // Without this macOS makes the process the active app, which takes the keyboard from

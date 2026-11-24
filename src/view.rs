@@ -8,11 +8,11 @@ use crate::backend::{self, Backend, BackendEvent, Launcher, Link};
 use crate::boot::BootClip;
 use crate::bottom_bar;
 use crate::chat_view::ChatView;
-use crate::screenshot::Screenshot;
-use crate::slash;
 use crate::input_box::{InputAction, InputBox};
 use crate::modals::{KeysModal, McpModal, Modal, ModalAction, ModelModal, SessionModal};
 use crate::protocol::{AgentState, Command, Event};
+use crate::screenshot::Screenshot;
+use crate::slash;
 use crate::toys::{Toy, ToyStatus};
 use crate::{boot_view, theme};
 
@@ -124,13 +124,21 @@ impl MinerveView {
 
     fn new_unstarted(ctx: &egui::Context, args: Options) -> Self {
         // The boot clip is for fresh sessions only, like the TUI's. It starts when minerve sends it.
-        let skip_boot = args.skip_boot || args.resume.is_some() || std::env::var_os("MINERVE_NO_BOOT").is_some();
-        let screenshot = args.screenshot.clone().map(|path| Screenshot::new(path, args.screenshot_after));
+        let skip_boot = args.skip_boot
+            || args.resume.is_some()
+            || std::env::var_os("MINERVE_NO_BOOT").is_some();
+        let screenshot = args
+            .screenshot
+            .clone()
+            .map(|path| Screenshot::new(path, args.screenshot_after));
         let mut app = Self {
             attached: false,
             cwd: None,
             colors: theme::Colors::default(),
-            id: egui::Id::new(("minerve-view", NEXT_VIEW.fetch_add(1, std::sync::atomic::Ordering::Relaxed))),
+            id: egui::Id::new((
+                "minerve-view",
+                NEXT_VIEW.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            )),
             args,
             backend: None,
             starting: None,
@@ -211,7 +219,9 @@ impl MinerveView {
                 self.error = Some(error);
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => return,
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => self.error = Some("minerve did not start".to_string()),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.error = Some("minerve did not start".to_string())
+            }
         }
         self.starting = None;
     }
@@ -252,7 +262,12 @@ impl MinerveView {
                      Install matching versions of both."
                 ));
             }
-            Event::Hello { minerve_version, features, cwd, .. } => {
+            Event::Hello {
+                minerve_version,
+                features,
+                cwd,
+                ..
+            } => {
                 if !cwd.is_empty() {
                     self.cwd = Some(std::path::PathBuf::from(cwd));
                 }
@@ -279,7 +294,12 @@ impl MinerveView {
                     }
                 }
             }
-            Event::Intro { fps, caption, frames, tips } => {
+            Event::Intro {
+                fps,
+                caption,
+                frames,
+                tips,
+            } => {
                 self.input.set_tips(tips);
                 if !self.skip_boot {
                     self.boot = BootClip::new(fps, caption.clone(), frames.clone());
@@ -295,7 +315,11 @@ impl MinerveView {
             Event::Notice { notice } => self.notices.push(notice),
             Event::Usage { summary } => self.usage = summary,
             Event::Session { session_id } => self.session_id = Some(session_id),
-            Event::Models { current, recent, lists } => {
+            Event::Models {
+                current,
+                recent,
+                lists,
+            } => {
                 self.model = current.clone();
                 // The startup ask for the pill awaits nothing: leave another modal's wait alone.
                 if self.awaiting == Some(Awaiting::Models) {
@@ -308,14 +332,20 @@ impl MinerveView {
                     self.modal = Some(Modal::Sessions(SessionModal::new(sessions)));
                 }
             }
-            Event::ApiKeys { openrouter, openai, anthropic } => {
+            Event::ApiKeys {
+                openrouter,
+                openai,
+                anthropic,
+            } => {
                 if self.awaiting.take() == Some(Awaiting::Keys) {
                     self.modal = Some(Modal::Keys(KeysModal::new(openrouter, openai, anthropic)));
                 }
             }
             Event::McpServers { servers } => match &mut self.modal {
                 Some(Modal::Mcp(modal)) => modal.update(servers),
-                _ if self.awaiting.take() == Some(Awaiting::Mcp) => self.modal = Some(Modal::Mcp(McpModal::new(servers))),
+                _ if self.awaiting.take() == Some(Awaiting::Mcp) => {
+                    self.modal = Some(Modal::Mcp(McpModal::new(servers)))
+                }
                 _ => {}
             },
             Event::MessageApps { slack } => match &mut self.modal {
@@ -327,7 +357,9 @@ impl MinerveView {
             },
             Event::MessageAppsManifest { manifest, url } => {
                 self.pending_clipboard = Some(manifest);
-                self.notices.push(format!("Slack manifest copied (also in ~/.minerve/slack-manifest.json). Opened {url}"));
+                self.notices.push(format!(
+                    "Slack manifest copied (also in ~/.minerve/slack-manifest.json). Opened {url}"
+                ));
             }
             Event::Unknown => {}
         }
@@ -342,7 +374,10 @@ impl MinerveView {
             if !command.is_empty() {
                 self.input.remember(trimmed);
                 self.status = format!("running `{command}`...");
-                self.shell_jobs.push((command.to_string(), crate::shell::spawn(command.to_string(), self.ctx.clone())));
+                self.shell_jobs.push((
+                    command.to_string(),
+                    crate::shell::spawn(command.to_string(), self.ctx.clone()),
+                ));
             }
             return;
         }
@@ -350,7 +385,11 @@ impl MinerveView {
         let completed = crate::slash::resolve(trimmed);
         let trimmed = completed.unwrap_or(trimmed);
         if self.backend.is_none() {
-            let why = if self.starting.is_some() { "minerve is still starting" } else { "minerve is not running: use Restart minerve" };
+            let why = if self.starting.is_some() {
+                "minerve is still starting"
+            } else {
+                "minerve is not running: use Restart minerve"
+            };
             self.notices.push(why.to_string());
             self.input.text = text;
             return;
@@ -360,7 +399,8 @@ impl MinerveView {
         let is_command = first_word.starts_with('/') && !first_word[1..].contains('/');
         if !is_command {
             if self.working {
-                self.status = "a turn is running: wait for it, or press Esc to cancel it".to_string();
+                self.status =
+                    "a turn is running: wait for it, or press Esc to cancel it".to_string();
                 self.input.text = text;
                 return;
             }
@@ -368,8 +408,15 @@ impl MinerveView {
             let message = crate::shell::with_context(&self.pending_shell, trimmed);
             self.pending_shell.clear();
             let images = self.input.take_images(trimmed);
-            let images = if self.has_feature("images") { images } else { Vec::new() };
-            self.send(Command::Submit { text: message, images });
+            let images = if self.has_feature("images") {
+                images
+            } else {
+                Vec::new()
+            };
+            self.send(Command::Submit {
+                text: message,
+                images,
+            });
             return;
         }
         if trimmed == "/clear" {
@@ -377,14 +424,21 @@ impl MinerveView {
             if self.has_feature("new_session") {
                 self.send(Command::NewSession {});
             } else {
-                self.notices.push("this minerve cannot start a new session from minerve-gui: update minerve".to_string());
+                self.notices.push(
+                    "this minerve cannot start a new session from minerve-gui: update minerve"
+                        .to_string(),
+                );
             }
         } else if let Some(command) = self.server_command(trimmed) {
             self.send(command);
         } else if trimmed == "/bootscreen" {
             match &self.intro {
-                Some((fps, caption, frames)) => self.boot = BootClip::new(*fps, caption.clone(), frames.clone()),
-                None => self.notices.push("this minerve did not send a boot screen: update minerve".to_string()),
+                Some((fps, caption, frames)) => {
+                    self.boot = BootClip::new(*fps, caption.clone(), frames.clone())
+                }
+                None => self
+                    .notices
+                    .push("this minerve did not send a boot screen: update minerve".to_string()),
             }
         } else if trimmed == "/matrix" {
             self.toy = Some(Toy::matrix());
@@ -405,17 +459,39 @@ impl MinerveView {
     fn server_command(&mut self, text: &str) -> Option<Command> {
         let (name, rest) = text.split_once(char::is_whitespace).unwrap_or((text, ""));
         let (feature, command, awaiting) = match name {
-            "/goal" if !rest.trim().is_empty() => ("goal", Command::Goal { goal: rest.trim().to_string() }, None),
-            "/budget" => ("budget", Command::Budget { arg: rest.trim().to_string() }, None),
+            "/goal" if !rest.trim().is_empty() => (
+                "goal",
+                Command::Goal {
+                    goal: rest.trim().to_string(),
+                },
+                None,
+            ),
+            "/budget" => (
+                "budget",
+                Command::Budget {
+                    arg: rest.trim().to_string(),
+                },
+                None,
+            ),
             "/model" => ("models", Command::ListModels {}, Some(Awaiting::Models)),
-            "/resume" => ("sessions", Command::ListSessions {}, Some(Awaiting::Sessions)),
-            "/message-apps" => ("message_apps", Command::MessageAppsStatus {}, Some(Awaiting::Apps)),
+            "/resume" => (
+                "sessions",
+                Command::ListSessions {},
+                Some(Awaiting::Sessions),
+            ),
+            "/message-apps" => (
+                "message_apps",
+                Command::MessageAppsStatus {},
+                Some(Awaiting::Apps),
+            ),
             "/mcp" => ("mcp", Command::ListMcp {}, Some(Awaiting::Mcp)),
             "/apikeys" => ("api_keys", Command::GetApiKeys {}, Some(Awaiting::Keys)),
             _ => return None,
         };
         if !self.has_feature(feature) {
-            self.notices.push(format!("this minerve cannot do {name} from minerve-gui: update minerve"));
+            self.notices.push(format!(
+                "this minerve cannot do {name} from minerve-gui: update minerve"
+            ));
             return None;
         }
         self.awaiting = awaiting;
@@ -438,7 +514,9 @@ impl MinerveView {
             }
             ctx.request_repaint_after(std::time::Duration::from_secs(1));
         }
-        let Some(modal) = self.modal.as_mut() else { return };
+        let Some(modal) = self.modal.as_mut() else {
+            return;
+        };
         let action = modal.show(ctx);
         self.act_on_modal(action);
         // The modal's own box had the keyboard: hand it back to the view's box, or (embedded in
@@ -463,10 +541,18 @@ impl MinerveView {
                 self.pending_shell.clear();
                 self.send(Command::ResumeSession { id });
             }
-            ModalAction::SaveKeys { openrouter, openai, anthropic } => {
+            ModalAction::SaveKeys {
+                openrouter,
+                openai,
+                anthropic,
+            } => {
                 self.modal = None;
                 let some = |key: String| Some(key).filter(|key| !key.trim().is_empty());
-                self.send(Command::SetApiKeys { openrouter: some(openrouter), openai: some(openai), anthropic: some(anthropic) });
+                self.send(Command::SetApiKeys {
+                    openrouter: some(openrouter),
+                    openai: some(openai),
+                    anthropic: some(anthropic),
+                });
             }
         }
     }
@@ -475,7 +561,9 @@ impl MinerveView {
     /// over it. An app's other panes have their own Esc.
     fn handle_keys(&mut self, ctx: &egui::Context, view_rect: egui::Rect) {
         let focused = ctx.memory(|memory| memory.has_focus(self.input.id));
-        let hovered = ctx.pointer_hover_pos().is_some_and(|pos| view_rect.contains(pos));
+        let hovered = ctx
+            .pointer_hover_pos()
+            .is_some_and(|pos| view_rect.contains(pos));
         if !(focused || hovered || self.input.grabs_focus) {
             return;
         }
@@ -487,7 +575,13 @@ impl MinerveView {
             (
                 input.key_pressed(egui::Key::Escape),
                 input.modifiers.ctrl && input.key_pressed(egui::Key::O),
-                input.events.iter().any(|event| matches!(event, egui::Event::Key { pressed: true, .. } | egui::Event::PointerButton { pressed: true, .. })),
+                input.events.iter().any(|event| {
+                    matches!(
+                        event,
+                        egui::Event::Key { pressed: true, .. }
+                            | egui::Event::PointerButton { pressed: true, .. }
+                    )
+                }),
             )
         });
         // The first key or click ends the boot clip.
@@ -498,7 +592,13 @@ impl MinerveView {
             self.boot = None;
             self.skip_boot = true;
         }
-        if escape && !dismissed_boot && self.modal.is_none() && self.toy.is_none() && self.working && self.has_feature("cancel") {
+        if escape
+            && !dismissed_boot
+            && self.modal.is_none()
+            && self.toy.is_none()
+            && self.working
+            && self.has_feature("cancel")
+        {
             self.send(Command::Cancel {});
         }
         if tools {
@@ -509,12 +609,19 @@ impl MinerveView {
     fn show_error(&mut self, ui: &mut egui::Ui, error: &str) {
         ui.vertical_centered(|ui| {
             ui.add_space((ui.available_height() / 3.0).max(20.0));
-            ui.label(RichText::new("minerve is not running").color(theme::c().magenta).strong());
+            ui.label(
+                RichText::new("minerve is not running")
+                    .color(theme::c().magenta)
+                    .strong(),
+            );
             ui.add_space(theme::FONT_SIZE);
             ui.label(error);
             ui.add_space(theme::FONT_SIZE);
             if !self.attached {
-                ui.label(RichText::new(format!("log: {}", backend::log_path().display())).color(theme::c().dark_gray));
+                ui.label(
+                    RichText::new(format!("log: {}", backend::log_path().display()))
+                        .color(theme::c().dark_gray),
+                );
             }
             ui.add_space(theme::FONT_SIZE);
             // The host's minerve is started again the host's way (moon: the card's resume).
@@ -558,7 +665,8 @@ impl MinerveView {
         theme::set(self.colors);
         theme::style(ui.style_mut());
         let view_rect = ui.max_rect();
-        ui.painter().rect_filled(view_rect, 0.0, theme::c().background);
+        ui.painter()
+            .rect_filled(view_rect, 0.0, theme::c().background);
         self.drain_events();
         self.handle_keys(ctx, view_rect);
         if let Some(screenshot) = self.screenshot.as_mut() {
@@ -568,27 +676,55 @@ impl MinerveView {
             self.boot = None;
         }
         let panel = |top: i8, bottom: i8| {
-            egui::Frame::NONE.fill(theme::c().background).inner_margin(egui::Margin { left: theme::PANEL_MARGIN, right: theme::PANEL_MARGIN, top, bottom })
+            egui::Frame::NONE
+                .fill(theme::c().background)
+                .inner_margin(egui::Margin {
+                    left: theme::PANEL_MARGIN,
+                    right: theme::PANEL_MARGIN,
+                    top,
+                    bottom,
+                })
         };
-        let no_frame = egui::Frame::NONE.fill(theme::c().background).inner_margin(theme::CHAT_MARGIN);
+        let no_frame = egui::Frame::NONE
+            .fill(theme::c().background)
+            .inner_margin(theme::CHAT_MARGIN);
 
         egui::Panel::bottom(self.id.with("status_bar"))
-            .frame(egui::Frame::NONE.fill(theme::c().bar).inner_margin(egui::Margin::symmetric(theme::PANEL_MARGIN, 5)))
+            .frame(
+                egui::Frame::NONE
+                    .fill(theme::c().bar)
+                    .inner_margin(egui::Margin::symmetric(theme::PANEL_MARGIN, 5)),
+            )
             .show_separator_line(false)
             .show(ui, |ui| {
                 let usage = if self.usage.is_empty() {
-                    egui::text::LayoutJob::simple_singleline("no turns yet".into(), theme::small(), theme::c().dim)
+                    egui::text::LayoutJob::simple_singleline(
+                        "no turns yet".into(),
+                        theme::small(),
+                        theme::c().dim,
+                    )
                 } else {
                     bottom_bar::usage_job(&self.usage)
                 };
                 let usage_width = ui.fonts_mut(|fonts| fonts.layout_job(usage.clone()).size().x);
-                let cwd = bottom_bar::tilde_cwd(self.cwd.as_deref().or(self.args.launcher.workdir.as_deref()));
+                let cwd = bottom_bar::tilde_cwd(
+                    self.cwd
+                        .as_deref()
+                        .or(self.args.launcher.workdir.as_deref()),
+                );
                 ui.horizontal(|ui| {
                     // The usage keeps its room; the folder has what is left, cut short.
                     let room = ui.available_width() - usage_width - 16.0;
                     if room > 40.0 {
                         ui.allocate_ui(egui::vec2(room, ui.available_height()), |ui| {
-                            ui.add(egui::Label::new(RichText::new(cwd).font(theme::small()).color(theme::c().dark_gray)).truncate());
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(cwd)
+                                        .font(theme::small())
+                                        .color(theme::c().dark_gray),
+                                )
+                                .truncate(),
+                            );
                         });
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -598,12 +734,15 @@ impl MinerveView {
             });
         let mut submitted = None;
         let mut input_action = InputAction::None;
-        egui::Panel::bottom(self.id.with("input")).frame(panel(4, 12)).show_separator_line(false).show(ui, |ui| {
-            // A toy reads the keys itself.
-            if self.toy.is_none() {
-                input_action = self.input.show(ui, &self.model, self.working);
-            }
-        });
+        egui::Panel::bottom(self.id.with("input"))
+            .frame(panel(4, 12))
+            .show_separator_line(false)
+            .show(ui, |ui| {
+                // A toy reads the keys itself.
+                if self.toy.is_none() {
+                    input_action = self.input.show(ui, &self.model, self.working);
+                }
+            });
         if let Some(error) = self.input.paste_error.take() {
             self.status = error;
         }
@@ -621,43 +760,76 @@ impl MinerveView {
             }
             InputAction::None => {}
         }
-        egui::Panel::bottom(self.id.with("status")).frame(panel(10, 2)).show_separator_line(false).show(ui, |ui| {
-            if self.working {
-                let frame = (ctx.input(|input| input.time) * 8.0) as usize % SPINNER.len();
-                ctx.request_repaint_after(std::time::Duration::from_millis(125));
-                let status = if self.status.is_empty() { "working..." } else { &self.status };
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("{} {status}", SPINNER[frame])).font(theme::small()).color(theme::c().magenta));
-                    ui.label(RichText::new("  ·  esc to stop").font(theme::small()).color(theme::c().dark_gray));
-                });
-            } else {
-                ui.label(RichText::new(&self.status).font(theme::small()).color(theme::c().magenta));
-            }
-        });
-
-        egui::CentralPanel::default().frame(no_frame).show(ui, |ui| {
-            if let Some(error) = self.error.clone() {
-                self.show_error(ui, &error);
-                return;
-            }
-            // The terminal views (boot clip, matrix, tetris) run to the view's left, right and
-            // top edges; only the chat keeps its reading margins.
-            let content = ui.available_rect_before_wrap();
-            let window = view_rect;
-            let rect = egui::Rect::from_min_max(window.min, egui::pos2(window.max.x, content.max.y));
-            if let Some(toy) = self.toy.as_mut() {
-                if toy.show(ui, rect) == ToyStatus::Done {
-                    self.toy = None;
+        egui::Panel::bottom(self.id.with("status"))
+            .frame(panel(10, 2))
+            .show_separator_line(false)
+            .show(ui, |ui| {
+                if self.working {
+                    let frame = (ctx.input(|input| input.time) * 8.0) as usize % SPINNER.len();
+                    ctx.request_repaint_after(std::time::Duration::from_millis(125));
+                    let status = if self.status.is_empty() {
+                        "working..."
+                    } else {
+                        &self.status
+                    };
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!("{} {status}", SPINNER[frame]))
+                                .font(theme::small())
+                                .color(theme::c().magenta),
+                        );
+                        ui.label(
+                            RichText::new("  ·  esc to stop")
+                                .font(theme::small())
+                                .color(theme::c().dark_gray),
+                        );
+                    });
+                } else {
+                    ui.label(
+                        RichText::new(&self.status)
+                            .font(theme::small())
+                            .color(theme::c().magenta),
+                    );
                 }
-                return;
-            }
-            self.chat.show(ui, &self.transcript, &self.notices, &self.pending_shell, self.tools_expanded);
-            if let Some(boot) = &self.boot {
-                boot_view::paint(ui, rect, boot);
-            }
-        });
+            });
+
+        egui::CentralPanel::default()
+            .frame(no_frame)
+            .show(ui, |ui| {
+                if let Some(error) = self.error.clone() {
+                    self.show_error(ui, &error);
+                    return;
+                }
+                // The terminal views (boot clip, matrix, tetris) run to the view's left, right and
+                // top edges; only the chat keeps its reading margins.
+                let content = ui.available_rect_before_wrap();
+                let window = view_rect;
+                let rect =
+                    egui::Rect::from_min_max(window.min, egui::pos2(window.max.x, content.max.y));
+                if let Some(toy) = self.toy.as_mut() {
+                    if toy.show(ui, rect) == ToyStatus::Done {
+                        self.toy = None;
+                    }
+                    return;
+                }
+                self.chat.show(
+                    ui,
+                    &self.transcript,
+                    &self.notices,
+                    &self.pending_shell,
+                    self.tools_expanded,
+                );
+                if let Some(boot) = &self.boot {
+                    boot_view::paint(ui, rect, boot);
+                }
+            });
         if self.modal.is_none() && self.toy.is_none() {
-            if let Some(name) = slash::show_menu(ctx, self.id.with("slash menu"), &self.input.text, self.input.rect) {
+            if let Some(name) = slash::show_menu(
+                ctx,
+                self.id.with("slash menu"),
+                &self.input.text,
+                self.input.rect,
+            ) {
                 self.input.set_text(ctx, name);
             }
         }

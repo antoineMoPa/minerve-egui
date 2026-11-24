@@ -84,7 +84,12 @@ pub(crate) fn set(colors: Colors) {
 
 pub const FONT_SIZE: f32 = 14.0;
 /// Margins of the chat column and the panels under it.
-pub const CHAT_MARGIN: egui::Margin = egui::Margin { left: 24, right: 20, top: 16, bottom: 0 };
+pub const CHAT_MARGIN: egui::Margin = egui::Margin {
+    left: 24,
+    right: 20,
+    top: 16,
+    bottom: 0,
+};
 pub const PANEL_MARGIN: i8 = 16;
 /// Space between two messages.
 pub const MESSAGE_GAP: f32 = 22.0;
@@ -102,10 +107,19 @@ pub fn small() -> FontId {
 
 /// The system sans for prose when this machine has one; the built-in proportional font otherwise.
 fn install_fonts(ctx: &egui::Context) {
-    let Ok(bytes) = std::fs::read(SYSTEM_SANS) else { return };
+    let Ok(bytes) = std::fs::read(SYSTEM_SANS) else {
+        return;
+    };
     let mut fonts = egui::FontDefinitions::default();
-    fonts.font_data.insert("system-sans".to_owned(), std::sync::Arc::new(egui::FontData::from_owned(bytes)));
-    fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "system-sans".to_owned());
+    fonts.font_data.insert(
+        "system-sans".to_owned(),
+        std::sync::Arc::new(egui::FontData::from_owned(bytes)),
+    );
+    fonts
+        .families
+        .entry(FontFamily::Proportional)
+        .or_default()
+        .insert(0, "system-sans".to_owned());
     ctx.set_fonts(fonts);
 }
 
@@ -121,15 +135,29 @@ pub fn apply(ctx: &egui::Context) {
 pub fn style(style: &mut egui::Style) {
     let c = c();
     {
-        style.text_styles.insert(TextStyle::Body, FontId::new(14.0, FontFamily::Proportional));
-        style.text_styles.insert(TextStyle::Heading, FontId::new(18.0, FontFamily::Proportional));
-        style.text_styles.insert(TextStyle::Button, FontId::new(13.0, FontFamily::Monospace));
-        style.text_styles.insert(TextStyle::Monospace, FontId::new(13.0, FontFamily::Monospace));
+        style
+            .text_styles
+            .insert(TextStyle::Body, FontId::new(14.0, FontFamily::Proportional));
+        style.text_styles.insert(
+            TextStyle::Heading,
+            FontId::new(18.0, FontFamily::Proportional),
+        );
+        style
+            .text_styles
+            .insert(TextStyle::Button, FontId::new(13.0, FontFamily::Monospace));
+        style.text_styles.insert(
+            TextStyle::Monospace,
+            FontId::new(13.0, FontFamily::Monospace),
+        );
         style.text_styles.insert(TextStyle::Small, small());
         style.spacing.scroll = egui::style::ScrollStyle::floating();
         style.spacing.scroll.bar_width = 6.0;
         let visuals = &mut style.visuals;
-        *visuals = if c.dark { egui::Visuals::dark() } else { egui::Visuals::light() };
+        *visuals = if c.dark {
+            egui::Visuals::dark()
+        } else {
+            egui::Visuals::light()
+        };
         visuals.panel_fill = c.background;
         visuals.window_fill = c.background;
         visuals.extreme_bg_color = c.background;

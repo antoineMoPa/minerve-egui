@@ -43,7 +43,11 @@ impl std::fmt::Debug for Link {
 /// Where command lines go.
 enum Transport {
     /// The socket of the minerve we started, which we end.
-    Socket { stream: Mutex<UnixStream>, child: Child, socket_path: PathBuf },
+    Socket {
+        stream: Mutex<UnixStream>,
+        child: Child,
+        socket_path: PathBuf,
+    },
     /// The host's minerve.
     Link(Box<dyn Fn(String) + Send + Sync>),
 }
@@ -63,10 +67,15 @@ pub struct Backend {
 }
 
 /// Reads event lines, handing each to `tx` and waking the UI. Ends with `Disconnected`.
-fn forward_lines(lines: impl Iterator<Item = Result<String, String>>, tx: mpsc::Sender<BackendEvent>, ctx: eframe::egui::Context) {
+fn forward_lines(
+    lines: impl Iterator<Item = Result<String, String>>,
+    tx: mpsc::Sender<BackendEvent>,
+    ctx: eframe::egui::Context,
+) {
     for line in lines {
         let event = line.and_then(|line| {
-            serde_json::from_str::<Event>(&line).map_err(|err| format!("unreadable line ({err}): {line}"))
+            serde_json::from_str::<Event>(&line)
+                .map_err(|err| format!("unreadable line ({err}): {line}"))
         });
         match event {
             Ok(event) => {
@@ -83,12 +92,16 @@ fn forward_lines(lines: impl Iterator<Item = Result<String, String>>, tx: mpsc::
             }
         }
     }
-    let _ = tx.send(BackendEvent::Disconnected("minerve closed the connection".into()));
+    let _ = tx.send(BackendEvent::Disconnected(
+        "minerve closed the connection".into(),
+    ));
     ctx.request_repaint();
 }
 
 fn minerve_dir() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(std::env::temp_dir).join(".minerve")
+    dirs::home_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join(".minerve")
 }
 
 pub fn log_path() -> PathBuf {
@@ -100,16 +113,24 @@ fn minerve_executable(explicit: Option<&Path>) -> PathBuf {
     if let Some(path) = explicit {
         return path.to_path_buf();
     }
-    let sibling = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join("minerve")));
+    let sibling = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("minerve")));
     match sibling {
         Some(path) if path.is_file() => path,
-        _ => well_known_install_dirs().into_iter().map(|dir| dir.join("minerve")).find(|path| path.is_file()).unwrap_or_else(|| PathBuf::from("minerve")),
+        _ => well_known_install_dirs()
+            .into_iter()
+            .map(|dir| dir.join("minerve"))
+            .find(|path| path.is_file())
+            .unwrap_or_else(|| PathBuf::from("minerve")),
     }
 }
 
 /// Where the installers put minerve; a GUI launched outside a shell may not have these on PATH.
 fn well_known_install_dirs() -> Vec<PathBuf> {
-    let Some(home) = dirs::home_dir() else { return Vec::new() };
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
     vec![home.join(".local/bin"), home.join(".cargo/bin")]
 }
 
@@ -121,14 +142,21 @@ fn last_log_lines(count: usize) -> String {
 
 impl Backend {
     /// Starts minerve and waits for it to connect. `resume` is a session id for `--resume`.
-    pub fn start(resume: Option<&str>, launcher: &Launcher, ctx: eframe::egui::Context) -> Result<Self, String> {
-        std::fs::create_dir_all(minerve_dir()).map_err(|err| format!("cannot create ~/.minerve: {err}"))?;
+    pub fn start(
+        resume: Option<&str>,
+        launcher: &Launcher,
+        ctx: eframe::egui::Context,
+    ) -> Result<Self, String> {
+        std::fs::create_dir_all(minerve_dir())
+            .map_err(|err| format!("cannot create ~/.minerve: {err}"))?;
         let index = NEXT_SOCKET.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let socket_path = minerve_dir().join(format!("gui-{}-{index}.sock", std::process::id()));
         let _ = std::fs::remove_file(&socket_path);
         let listener = UnixListener::bind(&socket_path)
             .map_err(|err| format!("cannot listen on {}: {err}", socket_path.display()))?;
-        listener.set_nonblocking(true).map_err(|err| err.to_string())?;
+        listener
+            .set_nonblocking(true)
+            .map_err(|err| err.to_string())?;
 
         let executable = minerve_executable(launcher.program.as_deref());
         let log = std::fs::OpenOptions::new()
@@ -164,33 +192,64 @@ impl Backend {
             match listener.accept() {
                 Ok((stream, _)) => break stream,
                 Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}
-                Err(err) => return Err(fail(&mut child, &socket_path, format!("accept failed: {err}"))),
+                Err(err) => {
+                    return Err(fail(
+                        &mut child,
+                        &socket_path,
+                        format!("accept failed: {err}"),
+                    ))
+                }
             }
             if let Ok(Some(status)) = child.try_wait() {
                 return Err(fail(&mut child, &socket_path, format!("minerve exited early ({status}). minerve-gui needs a minerve that has --serve: update minerve.")));
             }
             if Instant::now() > deadline {
-                return Err(fail(&mut child, &socket_path, "minerve did not connect in 10 s".into()));
+                return Err(fail(
+                    &mut child,
+                    &socket_path,
+                    "minerve did not connect in 10 s".into(),
+                ));
             }
             std::thread::sleep(Duration::from_millis(20));
         };
         // Connected: the path is no longer needed, and a crash must not leave it behind.
         let _ = std::fs::remove_file(&socket_path);
-        stream.set_nonblocking(false).map_err(|err| err.to_string())?;
+        stream
+            .set_nonblocking(false)
+            .map_err(|err| err.to_string())?;
         let reader = stream.try_clone().map_err(|err| err.to_string())?;
         let (tx, events) = mpsc::channel();
         std::thread::spawn(move || {
-            forward_lines(BufReader::new(reader).lines().map(|line| line.map_err(|err| err.to_string())), tx, ctx)
+            forward_lines(
+                BufReader::new(reader)
+                    .lines()
+                    .map(|line| line.map_err(|err| err.to_string())),
+                tx,
+                ctx,
+            )
         });
-        Ok(Self { transport: Transport::Socket { stream: Mutex::new(stream), child, socket_path }, events })
+        Ok(Self {
+            transport: Transport::Socket {
+                stream: Mutex::new(stream),
+                child,
+                socket_path,
+            },
+            events,
+        })
     }
 
     /// Talks to the host's minerve over `link`.
     pub fn attach(link: Link, ctx: eframe::egui::Context) -> Self {
-        let Link { events: lines, send } = link;
+        let Link {
+            events: lines,
+            send,
+        } = link;
         let (tx, events) = mpsc::channel();
         std::thread::spawn(move || forward_lines(lines.into_iter().map(Ok), tx, ctx));
-        Self { transport: Transport::Link(send), events }
+        Self {
+            transport: Transport::Link(send),
+            events,
+        }
     }
 
     pub fn send(&self, command: &Command) {
@@ -198,7 +257,10 @@ impl Backend {
         // A minerve that went away shows up as `Disconnected`.
         match &self.transport {
             Transport::Socket { stream, .. } => {
-                let _ = stream.lock().unwrap().write_all(format!("{line}\n").as_bytes());
+                let _ = stream
+                    .lock()
+                    .unwrap()
+                    .write_all(format!("{line}\n").as_bytes());
             }
             Transport::Link(send) => send(line),
         }
@@ -215,7 +277,14 @@ fn fail(child: &mut Child, socket_path: &Path, reason: String) -> String {
 impl Drop for Backend {
     /// Ends the minerve we started. The host's goes on: it is the host's to end.
     fn drop(&mut self) {
-        let Transport::Socket { stream, child, socket_path } = &mut self.transport else { return };
+        let Transport::Socket {
+            stream,
+            child,
+            socket_path,
+        } = &mut self.transport
+        else {
+            return;
+        };
         let _ = stream.lock().unwrap().shutdown(std::net::Shutdown::Both);
         let deadline = Instant::now() + CLEAN_EXIT_TIMEOUT;
         while Instant::now() < deadline {

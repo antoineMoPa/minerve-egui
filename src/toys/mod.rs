@@ -36,7 +36,8 @@ impl Toy {
             Toy::Tetris(game) => game.show(ui, rect),
         };
         if status == ToyStatus::Running {
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(16));
         }
         status
     }
@@ -60,7 +61,12 @@ pub(crate) fn seed() -> u64 {
 
 /// True when any key went down this frame.
 pub(crate) fn any_key_pressed(ctx: &egui::Context) -> bool {
-    ctx.input(|input| input.events.iter().any(|event| matches!(event, egui::Event::Key { pressed: true, .. })))
+    ctx.input(|input| {
+        input
+            .events
+            .iter()
+            .any(|event| matches!(event, egui::Event::Key { pressed: true, .. }))
+    })
 }
 
 /// Runs one egui frame of `toy` with these keys pressed, the way the window would.
@@ -68,10 +74,19 @@ pub(crate) fn any_key_pressed(ctx: &egui::Context) -> bool {
 pub(crate) fn run_frame(ctx: &egui::Context, toy: &mut Toy, keys: &[egui::Key]) -> ToyStatus {
     let events = keys
         .iter()
-        .map(|key| egui::Event::Key { key: *key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE })
+        .map(|key| egui::Event::Key {
+            key: *key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        })
         .collect();
     let input = egui::RawInput {
-        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 720.0))),
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1000.0, 720.0),
+        )),
         events,
         ..Default::default()
     };
@@ -94,16 +109,34 @@ mod tests {
     fn tetris_answers_keys_and_esc_leaves() {
         let ctx = egui::Context::default();
         let mut toy = Toy::tetris();
-        let Toy::Tetris(game) = &toy else { unreachable!() };
+        let Toy::Tetris(game) = &toy else {
+            unreachable!()
+        };
         let before = game.piece_x();
-        assert_eq!(run_frame(&ctx, &mut toy, &[egui::Key::ArrowLeft]), ToyStatus::Running);
-        let Toy::Tetris(game) = &toy else { unreachable!() };
+        assert_eq!(
+            run_frame(&ctx, &mut toy, &[egui::Key::ArrowLeft]),
+            ToyStatus::Running
+        );
+        let Toy::Tetris(game) = &toy else {
+            unreachable!()
+        };
         assert_eq!(game.piece_x(), before - 1);
-        assert_eq!(run_frame(&ctx, &mut toy, &[egui::Key::ArrowRight]), ToyStatus::Running);
-        let Toy::Tetris(game) = &toy else { unreachable!() };
+        assert_eq!(
+            run_frame(&ctx, &mut toy, &[egui::Key::ArrowRight]),
+            ToyStatus::Running
+        );
+        let Toy::Tetris(game) = &toy else {
+            unreachable!()
+        };
         assert_eq!(game.piece_x(), before);
-        assert_eq!(run_frame(&ctx, &mut toy, &[egui::Key::Space]), ToyStatus::Running);
-        assert_eq!(run_frame(&ctx, &mut toy, &[egui::Key::Escape]), ToyStatus::Done);
+        assert_eq!(
+            run_frame(&ctx, &mut toy, &[egui::Key::Space]),
+            ToyStatus::Running
+        );
+        assert_eq!(
+            run_frame(&ctx, &mut toy, &[egui::Key::Escape]),
+            ToyStatus::Done
+        );
     }
 
     #[test]
@@ -111,13 +144,20 @@ mod tests {
         let ctx = egui::Context::default();
         let mut toy = Toy::matrix();
         assert_eq!(run_frame(&ctx, &mut toy, &[]), ToyStatus::Running);
-        assert_eq!(run_frame(&ctx, &mut toy, &[egui::Key::A]), ToyStatus::Running, "fades out first");
+        assert_eq!(
+            run_frame(&ctx, &mut toy, &[egui::Key::A]),
+            ToyStatus::Running,
+            "fades out first"
+        );
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
         loop {
             if run_frame(&ctx, &mut toy, &[]) == ToyStatus::Done {
                 break;
             }
-            assert!(std::time::Instant::now() < deadline, "matrix never ended after a key");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "matrix never ended after a key"
+            );
             std::thread::sleep(std::time::Duration::from_millis(30));
         }
     }

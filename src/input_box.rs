@@ -4,8 +4,8 @@ use std::time::Instant;
 
 use eframe::egui::{self, Id, Key, RichText, Stroke, TextEdit};
 
-use crate::tips::Tips;
 use crate::theme;
+use crate::tips::Tips;
 
 const MAX_ROWS: usize = 8;
 
@@ -41,7 +41,11 @@ pub enum InputAction {
 /// A small flat pill: dim label, bright value, hairline border.
 fn pill(ui: &mut egui::Ui, label: &str, value: &str) -> egui::Response {
     let mut job = egui::text::LayoutJob::default();
-    let format = |color| egui::TextFormat { font_id: theme::small(), color, ..Default::default() };
+    let format = |color| egui::TextFormat {
+        font_id: theme::small(),
+        color,
+        ..Default::default()
+    };
     job.append(&format!("{label} "), 0.0, format(theme::c().dark_gray));
     job.append(value, 0.0, format(theme::c().gray));
     let button = egui::Button::new(job)
@@ -49,9 +53,9 @@ fn pill(ui: &mut egui::Ui, label: &str, value: &str) -> egui::Response {
         .stroke(Stroke::new(1.0, theme::c().hairline))
         .corner_radius(4)
         .min_size(egui::vec2(0.0, 22.0));
-    ui.add(button).on_hover_cursor(egui::CursorIcon::PointingHand)
+    ui.add(button)
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
 }
-
 
 /// Takes the first Enter press without Shift out of the input events, so the text edit never sees it.
 fn take_plain_enter(ctx: &egui::Context) -> bool {
@@ -164,9 +168,15 @@ impl InputBox {
             }
             // Ctrl+V (and Cmd+V, which egui turns into a text paste only when the clipboard has text).
             let paste_key = ctx.input_mut(|input| {
-                input.consume_key(egui::Modifiers::CTRL, Key::V) || input.consume_key(egui::Modifiers::COMMAND, Key::V)
+                input.consume_key(egui::Modifiers::CTRL, Key::V)
+                    || input.consume_key(egui::Modifiers::COMMAND, Key::V)
             });
-            let empty_paste = ctx.input(|input| input.events.iter().any(|e| matches!(e, egui::Event::Paste(t) if t.is_empty())));
+            let empty_paste = ctx.input(|input| {
+                input
+                    .events
+                    .iter()
+                    .any(|e| matches!(e, egui::Event::Paste(t) if t.is_empty()))
+            });
             if paste_key || empty_paste {
                 self.paste_clipboard_image();
             }
@@ -191,12 +201,21 @@ impl InputBox {
 
         let tip = self.tips.visible_text(Instant::now());
         let rows = self.text.lines().count().max(1) + usize::from(self.text.ends_with('\n'));
-        let border = if focused { theme::c().accent } else { theme::c().sep };
+        let border = if focused {
+            theme::c().accent
+        } else {
+            theme::c().sep
+        };
         let frame = egui::Frame::NONE
             .stroke(Stroke::new(1.0, border))
             .fill(theme::c().surface)
             .corner_radius(8)
-            .inner_margin(egui::Margin { left: 14, right: 8, top: 12, bottom: 8 });
+            .inner_margin(egui::Margin {
+                left: 14,
+                right: 8,
+                top: 12,
+                bottom: 8,
+            });
         let output = frame.show(ui, |ui| {
             let mut edit = TextEdit::multiline(&mut self.text)
                 .id(self.id)
@@ -209,13 +228,19 @@ impl InputBox {
             if std::mem::take(&mut self.move_cursor_to_end) {
                 let mut state = response.state.clone();
                 let end = egui::text::CCursor::new(self.text.chars().count());
-                state.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
+                state
+                    .cursor
+                    .set_char_range(Some(egui::text::CCursorRange::one(end)));
                 state.store(ui.ctx(), self.id);
             }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
-                if !model.is_empty() && pill(ui, "model", model).on_hover_text("Change model (/model)").clicked() {
+                if !model.is_empty()
+                    && pill(ui, "model", model)
+                        .on_hover_text("Change model (/model)")
+                        .clicked()
+                {
                     action = InputAction::OpenModels;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -225,13 +250,29 @@ impl InputBox {
                         ("send \u{21b5}", theme::c().background, theme::c().accent)
                     };
                     let enabled = working || !self.text.trim().is_empty();
-                    let button = egui::Button::new(RichText::new(text).font(theme::small()).color(color).strong())
-                        .fill(if enabled { fill } else { theme::c().hairline })
-                        .stroke(Stroke::new(1.0, if working { theme::c().magenta } else { egui::Color32::TRANSPARENT }))
-                        .corner_radius(4)
-                        .min_size(egui::vec2(0.0, 22.0));
+                    let button = egui::Button::new(
+                        RichText::new(text)
+                            .font(theme::small())
+                            .color(color)
+                            .strong(),
+                    )
+                    .fill(if enabled { fill } else { theme::c().hairline })
+                    .stroke(Stroke::new(
+                        1.0,
+                        if working {
+                            theme::c().magenta
+                        } else {
+                            egui::Color32::TRANSPARENT
+                        },
+                    ))
+                    .corner_radius(4)
+                    .min_size(egui::vec2(0.0, 22.0));
                     if ui.add_enabled(enabled, button).clicked() {
-                        action = if working { InputAction::Cancel } else { InputAction::Send(std::mem::take(&mut self.text)) };
+                        action = if working {
+                            InputAction::Cancel
+                        } else {
+                            InputAction::Send(std::mem::take(&mut self.text))
+                        };
                     }
                 });
             });
@@ -258,10 +299,19 @@ mod tests {
     fn frame(ctx: &egui::Context, input: &mut InputBox, keys: &[Key]) {
         let events = keys
             .iter()
-            .map(|key| egui::Event::Key { key: *key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE })
+            .map(|key| egui::Event::Key {
+                key: *key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            })
             .collect();
         let raw = egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0))),
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 600.0),
+            )),
             events,
             ..Default::default()
         };

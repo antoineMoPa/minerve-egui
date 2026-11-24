@@ -19,7 +19,11 @@ pub struct Tips {
 impl Tips {
     /// No tips until `set` is called.
     pub fn new(now: Instant) -> Self {
-        Self { tips: Vec::new(), index: 0, shown_at: now + IDLE_DELAY }
+        Self {
+            tips: Vec::new(),
+            index: 0,
+            shown_at: now + IDLE_DELAY,
+        }
     }
 
     /// Replaces the tips, starting on one picked by the current time so a returning user sees a different one.
@@ -28,7 +32,11 @@ impl Tips {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|elapsed| elapsed.as_secs())
             .unwrap_or(0);
-        self.index = if tips.is_empty() { 0 } else { seconds as usize % tips.len() };
+        self.index = if tips.is_empty() {
+            0
+        } else {
+            seconds as usize % tips.len()
+        };
         self.tips = tips;
         self.shown_at = now + IDLE_DELAY;
     }
@@ -49,7 +57,11 @@ impl Tips {
         if elapsed < typing_time {
             Some(TYPING_STEP)
         } else {
-            Some((typing_time + HOLD).saturating_sub(elapsed).max(Duration::from_millis(1)))
+            Some(
+                (typing_time + HOLD)
+                    .saturating_sub(elapsed)
+                    .max(Duration::from_millis(1)),
+            )
         }
     }
 
@@ -98,7 +110,9 @@ mod tests {
         for step in 0..500 {
             let shown = tips.visible_text(start + TYPING_STEP * step);
             assert!(
-                ["Pro tip: first tip.", "Pro tip: second tip."].iter().any(|text| text.starts_with(&shown)),
+                ["Pro tip: first tip.", "Pro tip: second tip."]
+                    .iter()
+                    .any(|text| text.starts_with(&shown)),
                 "{shown:?} is not a prefix of any tip"
             );
         }
@@ -128,6 +142,9 @@ mod tests {
         let mut tips = tips(start);
         tips.restart_idle_delay(start + IDLE_DELAY / 2);
         assert_eq!(tips.visible_text(start + IDLE_DELAY + TYPING_STEP * 5), "");
-        assert_eq!(tips.visible_text(start + IDLE_DELAY / 2 + IDLE_DELAY + TYPING_STEP * 3), "Pro");
+        assert_eq!(
+            tips.visible_text(start + IDLE_DELAY / 2 + IDLE_DELAY + TYPING_STEP * 3),
+            "Pro"
+        );
     }
 }

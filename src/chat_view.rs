@@ -1,7 +1,9 @@
 //! The chat, labeled and colored like the TUI's (`chat_lines` in `src/tui/draw.rs`), spaced
 //! like a reading column: a role label, an accent bar beside each message, one line per tool call.
 
-use eframe::egui::{self, text::LayoutJob, Color32, FontFamily, FontId, RichText, Stroke, TextFormat};
+use eframe::egui::{
+    self, text::LayoutJob, Color32, FontFamily, FontId, RichText, Stroke, TextFormat,
+};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
 use crate::theme;
@@ -35,13 +37,24 @@ fn is_tool(role: &str) -> bool {
 /// (`▾` once open). Says whether it was clicked.
 fn tool_row(ui: &mut egui::Ui, name: &str, content: &str, open: bool) -> bool {
     let font = FontId::new(12.0, FontFamily::Monospace);
-    let format = |color| TextFormat { font_id: font.clone(), color, ..Default::default() };
+    let format = |color| TextFormat {
+        font_id: font.clone(),
+        color,
+        ..Default::default()
+    };
     let lines = content.lines().count();
     let first = content.lines().next().unwrap_or_default();
     let mut job = LayoutJob::default();
     job.append(if open { "▾ " } else { "▸ " }, 0.0, format(theme::c().dim));
     job.append(name, 0.0, format(theme::c().name));
-    job.append(&format!("  {lines} line{} · {first}", if lines == 1 { "" } else { "s" }), 0.0, format(theme::c().dark_gray));
+    job.append(
+        &format!(
+            "  {lines} line{} · {first}",
+            if lines == 1 { "" } else { "s" }
+        ),
+        0.0,
+        format(theme::c().dark_gray),
+    );
     job.wrap.max_rows = 1;
     job.wrap.break_anywhere = true;
     // Reserved before the row, so the hover fill is drawn under its text.
@@ -49,84 +62,137 @@ fn tool_row(ui: &mut egui::Ui, name: &str, content: &str, open: bool) -> bool {
     let row = ui.horizontal(|ui| {
         ui.label(job);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(RichText::new("Ctrl+O").font(theme::small()).color(theme::c().dim));
+            ui.label(
+                RichText::new("Ctrl+O")
+                    .font(theme::small())
+                    .color(theme::c().dim),
+            );
         });
     });
     // The whole row is the button.
     let response = ui
-        .interact(row.response.rect, ui.id().with(("tool row", name, row.response.rect.top() as i32)), egui::Sense::click())
+        .interact(
+            row.response.rect,
+            ui.id()
+                .with(("tool row", name, row.response.rect.top() as i32)),
+            egui::Sense::click(),
+        )
         .on_hover_cursor(egui::CursorIcon::PointingHand);
     if response.hovered() {
         let rect = row.response.rect.expand(2.0);
-        ui.painter().set(fill, egui::Shape::rect_filled(rect, 2.0, theme::c().hairline));
+        ui.painter().set(
+            fill,
+            egui::Shape::rect_filled(rect, 2.0, theme::c().hairline),
+        );
     }
     response.clicked()
 }
 
 impl ChatView {
     pub fn new() -> Self {
-        Self { markdown_cache: CommonMarkCache::default(), opened: Default::default() }
+        Self {
+            markdown_cache: CommonMarkCache::default(),
+            opened: Default::default(),
+        }
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, transcript: &[(String, String)], notices: &[String], pending_shell: &[String], tools_expanded: bool) {
-        egui::ScrollArea::vertical().auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            let visible: Vec<&(String, String)> = transcript.iter().filter(|(role, _)| role != "system").collect();
-            for (index, (role, content)) in visible.iter().enumerate() {
-                let opened = self.opened.contains(&index);
-                if is_tool(role) && !tools_expanded && !opened {
-                    if tool_row(ui, role, content, false) {
-                        self.opened.insert(index);
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        transcript: &[(String, String)],
+        notices: &[String],
+        pending_shell: &[String],
+        tools_expanded: bool,
+    ) {
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .stick_to_bottom(true)
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                let visible: Vec<&(String, String)> = transcript
+                    .iter()
+                    .filter(|(role, _)| role != "system")
+                    .collect();
+                for (index, (role, content)) in visible.iter().enumerate() {
+                    let opened = self.opened.contains(&index);
+                    if is_tool(role) && !tools_expanded && !opened {
+                        if tool_row(ui, role, content, false) {
+                            self.opened.insert(index);
+                        }
+                        // Consecutive tool rows sit close; the group is separated like any message.
+                        let next_is_tool = visible
+                            .get(index + 1)
+                            .is_some_and(|(next, _)| is_tool(next));
+                        ui.add_space(if next_is_tool {
+                            TOOL_ROW_GAP
+                        } else {
+                            theme::MESSAGE_GAP
+                        });
+                        continue;
                     }
-                    // Consecutive tool rows sit close; the group is separated like any message.
-                    let next_is_tool = visible.get(index + 1).is_some_and(|(next, _)| is_tool(next));
-                    ui.add_space(if next_is_tool { TOOL_ROW_GAP } else { theme::MESSAGE_GAP });
-                    continue;
-                }
-                // One opened by a click keeps its row above it, to close it again.
-                if is_tool(role) && opened && !tools_expanded && tool_row(ui, role, content, true) {
-                    self.opened.remove(&index);
-                }
-                let (name, color) = match role.as_str() {
-                    "user" => ("You", theme::c().green),
-                    "minerve" => ("Minerve", theme::c().accent),
-                    GOAL_EVALUATOR_ROLE => ("Goal evaluator", theme::c().magenta),
-                    other => (other, theme::c().name),
-                };
-                self.message(ui, name, color, |ui, cache| {
-                    if role == "minerve" {
-                        CommonMarkViewer::new().show(ui, cache, content.trim());
-                    } else if content.chars().count() > MAX_OUTPUT_LEN {
-                        let head: String = content.chars().take(MAX_OUTPUT_LEN).collect();
-                        ui.label(format!("{head}\n...[truncated]"));
-                    } else {
-                        ui.label(content.as_str());
+                    // One opened by a click keeps its row above it, to close it again.
+                    if is_tool(role)
+                        && opened
+                        && !tools_expanded
+                        && tool_row(ui, role, content, true)
+                    {
+                        self.opened.remove(&index);
                     }
-                });
-            }
-            // Shell output queued with `!command`: sent with the next message.
-            for output in pending_shell {
-                self.message(ui, "Shell (queued, sent with your next message)", theme::c().yellow, |ui, cache| {
-                    CommonMarkViewer::new().show(ui, cache, output);
-                });
-            }
-            // Results of local commands. Not sent to the model.
-            for notice in notices {
-                self.message(ui, "Command", theme::c().accent, |ui, _| {
-                    ui.label(RichText::new(notice.as_str()).color(theme::c().gray));
-                });
-            }
-        });
+                    let (name, color) = match role.as_str() {
+                        "user" => ("You", theme::c().green),
+                        "minerve" => ("Minerve", theme::c().accent),
+                        GOAL_EVALUATOR_ROLE => ("Goal evaluator", theme::c().magenta),
+                        other => (other, theme::c().name),
+                    };
+                    self.message(ui, name, color, |ui, cache| {
+                        if role == "minerve" {
+                            CommonMarkViewer::new().show(ui, cache, content.trim());
+                        } else if content.chars().count() > MAX_OUTPUT_LEN {
+                            let head: String = content.chars().take(MAX_OUTPUT_LEN).collect();
+                            ui.label(format!("{head}\n...[truncated]"));
+                        } else {
+                            ui.label(content.as_str());
+                        }
+                    });
+                }
+                // Shell output queued with `!command`: sent with the next message.
+                for output in pending_shell {
+                    self.message(
+                        ui,
+                        "Shell (queued, sent with your next message)",
+                        theme::c().yellow,
+                        |ui, cache| {
+                            CommonMarkViewer::new().show(ui, cache, output);
+                        },
+                    );
+                }
+                // Results of local commands. Not sent to the model.
+                for notice in notices {
+                    self.message(ui, "Command", theme::c().accent, |ui, _| {
+                        ui.label(RichText::new(notice.as_str()).color(theme::c().gray));
+                    });
+                }
+            });
     }
 
     /// A label, the body, and an accent bar in the role's color beside both.
-    fn message(&mut self, ui: &mut egui::Ui, name: &str, color: Color32, body: impl FnOnce(&mut egui::Ui, &mut CommonMarkCache)) {
+    fn message(
+        &mut self,
+        ui: &mut egui::Ui,
+        name: &str,
+        color: Color32,
+        body: impl FnOnce(&mut egui::Ui, &mut CommonMarkCache),
+    ) {
         let left = ui.max_rect().left();
         let top = ui.cursor().top();
         label(ui, name, color);
         body(ui, &mut self.markdown_cache);
         let bottom = ui.cursor().top();
-        ui.painter().vline(left - BAR_OFFSET, top..=bottom, Stroke::new(2.0, color.gamma_multiply(0.55)));
+        ui.painter().vline(
+            left - BAR_OFFSET,
+            top..=bottom,
+            Stroke::new(2.0, color.gamma_multiply(0.55)),
+        );
         ui.add_space(theme::MESSAGE_GAP);
     }
 }
@@ -139,12 +205,17 @@ mod tests {
     fn frame(ctx: &egui::Context, chat: &mut ChatView, events: Vec<egui::Event>) {
         let transcript = vec![("read_file".to_string(), "line 1\nline 2".to_string())];
         let raw = egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(600.0, 400.0))),
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(600.0, 400.0),
+            )),
             events,
             ..Default::default()
         };
         // No renderer here: drop the font texture upload egui asks for.
-        ctx.run_ui(raw, |ui| chat.show(ui, &transcript, &[], &[], false)).textures_delta.clear();
+        ctx.run_ui(raw, |ui| chat.show(ui, &transcript, &[], &[], false))
+            .textures_delta
+            .clear();
     }
 
     fn click_at(pos: egui::Pos2) -> Vec<Vec<egui::Event>> {
@@ -154,7 +225,12 @@ mod tests {
             pressed,
             modifiers: egui::Modifiers::NONE,
         };
-        vec![vec![egui::Event::PointerMoved(pos)], vec![button(true)], vec![button(false)], vec![]]
+        vec![
+            vec![egui::Event::PointerMoved(pos)],
+            vec![button(true)],
+            vec![button(false)],
+            vec![],
+        ]
     }
 
     #[test]
@@ -166,10 +242,16 @@ mod tests {
         for events in click_at(egui::pos2(40.0, 8.0)) {
             frame(&ctx, &mut chat, events);
         }
-        assert!(chat.opened.contains(&0), "the click should open the tool's output");
+        assert!(
+            chat.opened.contains(&0),
+            "the click should open the tool's output"
+        );
         for events in click_at(egui::pos2(40.0, 8.0)) {
             frame(&ctx, &mut chat, events);
         }
-        assert!(!chat.opened.contains(&0), "a click on its row should close it again");
+        assert!(
+            !chat.opened.contains(&0),
+            "a click on its row should close it again"
+        );
     }
 }

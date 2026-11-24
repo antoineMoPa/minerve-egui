@@ -10,8 +10,8 @@
 
 mod backend;
 mod boot;
-mod bottom_bar;
 mod boot_view;
+mod bottom_bar;
 mod chat_view;
 mod clipboard_image;
 mod input_box;
@@ -21,9 +21,9 @@ mod protocol;
 mod screenshot;
 mod shell;
 mod slash;
+pub mod theme;
 mod tips;
 mod toys;
-pub mod theme;
 mod view;
 
 pub use backend::{Launcher, Link};

@@ -8,7 +8,8 @@ use super::{any_key_pressed, next_unit, seed, ToyStatus};
 use crate::theme;
 
 /// Characters the falling streams are made of.
-const GLYPHS: &str = "123456789abcdefghijklmnopqrstuvwxyzαβγδεζηθικλμνξοπρστυφχψωΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ";
+const GLYPHS: &str =
+    "123456789abcdefghijklmnopqrstuvwxyzαβγδεζηθικλμνξοπρστυφχψωΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ";
 const FADE: Duration = Duration::from_millis(500);
 
 /// One falling column of letters.
@@ -25,7 +26,11 @@ pub struct Stream {
 impl Stream {
     fn random(rng: &mut u64, height: u16) -> Self {
         let height = height.max(1) as f32;
-        Self { head: -next_unit(rng) * height, speed: 8.0 + next_unit(rng) * 20.0, length: 4 + (next_unit(rng) * height * 0.6) as u16 }
+        Self {
+            head: -next_unit(rng) * height,
+            speed: 8.0 + next_unit(rng) * 20.0,
+            length: 4 + (next_unit(rng) * height * 0.6) as u16,
+        }
     }
 
     /// Moves down by `dt` seconds. A stream past the bottom restarts above the top, or ends when `stopping`.
@@ -79,7 +84,9 @@ impl MatrixRain {
     fn resize(&mut self, cols: u16, rows: u16) {
         self.cols = cols;
         self.rows = rows;
-        self.streams = (0..cols).map(|_| Stream::random(&mut self.rng, rows)).collect();
+        self.streams = (0..cols)
+            .map(|_| Stream::random(&mut self.rng, rows))
+            .collect();
     }
 
     fn stop(&mut self) {
@@ -111,8 +118,12 @@ impl MatrixRain {
             return ToyStatus::Done;
         }
         let font = theme::mono();
-        let (glyph_width, row_height) = ui.fonts_mut(|fonts| (fonts.glyph_width(&font, 'x'), fonts.row_height(&font)));
-        let (cols, rows) = ((rect.width() / glyph_width) as u16, (rect.height() / row_height) as u16);
+        let (glyph_width, row_height) =
+            ui.fonts_mut(|fonts| (fonts.glyph_width(&font, 'x'), fonts.row_height(&font)));
+        let (cols, rows) = (
+            (rect.width() / glyph_width) as u16,
+            (rect.height() / row_height) as u16,
+        );
         if cols == 0 || rows == 0 {
             return ToyStatus::Running;
         }
@@ -139,11 +150,17 @@ impl MatrixRain {
                     continue;
                 }
                 // Letters flicker: each drawn cell picks a new glyph.
-                let glyph = self.glyphs[(next_unit(&mut self.rng) * self.glyphs.len() as f32) as usize % self.glyphs.len()];
+                let glyph = self.glyphs[(next_unit(&mut self.rng) * self.glyphs.len() as f32)
+                    as usize
+                    % self.glyphs.len()];
                 let color = if distance < 1.0 {
                     Color32::from_rgb(scale(255.0), scale(255.0), scale(255.0))
                 } else {
-                    Color32::from_rgb(0, scale(60.0 + 195.0 * (1.0 - distance / stream.length as f32)), 0)
+                    Color32::from_rgb(
+                        0,
+                        scale(60.0 + 195.0 * (1.0 - distance / stream.length as f32)),
+                        0,
+                    )
                 };
                 let pos = rect.min + egui::vec2(col as f32 * glyph_width, row as f32 * row_height);
                 painter.text(pos, Align2::LEFT_TOP, glyph, font.clone(), color);
@@ -160,7 +177,11 @@ mod tests {
     #[test]
     fn a_stream_moves_down_with_time() {
         let mut rng = 1;
-        let mut stream = Stream { head: 0.0, speed: 10.0, length: 5 };
+        let mut stream = Stream {
+            head: 0.0,
+            speed: 10.0,
+            length: 5,
+        };
         stream.step(0.5, 20, false, &mut rng);
         assert_eq!(stream.head, 5.0);
     }
@@ -168,7 +189,11 @@ mod tests {
     #[test]
     fn a_stream_past_the_bottom_restarts_above_or_ends() {
         let mut rng = 7;
-        let past = Stream { head: 40.0, speed: 10.0, length: 5 };
+        let past = Stream {
+            head: 40.0,
+            speed: 10.0,
+            length: 5,
+        };
         let mut again = past;
         again.step(0.1, 20, false, &mut rng);
         assert!(again.head <= 0.0 && again.length >= 4);

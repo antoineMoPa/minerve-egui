@@ -14,7 +14,11 @@ pub enum ModalAction {
     Resume(String),
     /// A command the modal built itself (the MCP manager).
     Send(Command),
-    SaveKeys { openrouter: String, openai: String, anthropic: String },
+    SaveKeys {
+        openrouter: String,
+        openai: String,
+        anthropic: String,
+    },
 }
 
 pub enum Modal {
@@ -56,7 +60,12 @@ fn dialog_frame() -> egui::Frame {
     egui::Frame::NONE
         .fill(theme::c().background)
         .stroke(egui::Stroke::new(1.0, theme::c().sep))
-        .shadow(egui::Shadow { offset: [0, 6], blur: 18, spread: 0, color: egui::Color32::from_black_alpha(60) })
+        .shadow(egui::Shadow {
+            offset: [0, 6],
+            blur: 18,
+            spread: 0,
+            color: egui::Color32::from_black_alpha(60),
+        })
         .inner_margin(16.0)
 }
 
@@ -70,12 +79,26 @@ fn roomy(ui: &mut egui::Ui) {
 
 /// Id separators read as spaces, so `fable 5.5` finds `claude-fable-5-5`.
 fn normalize(text: &str) -> String {
-    text.to_lowercase().chars().map(|c| if matches!(c, '-' | '.' | '_' | '/' | ':') { ' ' } else { c }).collect()
+    text.to_lowercase()
+        .chars()
+        .map(|c| {
+            if matches!(c, '-' | '.' | '_' | '/' | ':') {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 /// The filter's space-separated words, each normalized; all must match, in any order.
 fn filter_tokens(filter: &str) -> Vec<String> {
-    filter.split_whitespace().map(normalize).map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect()
+    filter
+        .split_whitespace()
+        .map(normalize)
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect()
 }
 
 fn matches_tokens(id: &str, tokens: &[String]) -> bool {
@@ -93,16 +116,33 @@ pub struct ModelModal {
 
 impl ModelModal {
     pub fn new(current: String, recent: Vec<String>, lists: Vec<ModelList>) -> Self {
-        Self { current, recent, lists, filter: String::new(), selected: 0 }
+        Self {
+            current,
+            recent,
+            lists,
+            filter: String::new(),
+            selected: 0,
+        }
     }
 
     /// Recent models matching the filter, then every other matching model in provider order.
     fn rows(&self) -> Vec<(String, bool)> {
         let tokens = filter_tokens(&self.filter);
-        let all: Vec<&String> = self.lists.iter().flat_map(|list| list.models.iter()).collect();
+        let all: Vec<&String> = self
+            .lists
+            .iter()
+            .flat_map(|list| list.models.iter())
+            .collect();
         let matches = |id: &str| matches_tokens(id, &tokens);
-        let recent = self.recent.iter().filter(|id| all.contains(id) && matches(id)).map(|id| (id.clone(), true));
-        let others = all.iter().filter(|id| !self.recent.contains(id) && matches(id)).map(|id| ((*id).clone(), false));
+        let recent = self
+            .recent
+            .iter()
+            .filter(|id| all.contains(id) && matches(id))
+            .map(|id| (id.clone(), true));
+        let others = all
+            .iter()
+            .filter(|id| !self.recent.contains(id) && matches(id))
+            .map(|id| ((*id).clone(), false));
         recent.chain(others).collect()
     }
 
@@ -110,7 +150,11 @@ impl ModelModal {
         let rows = self.rows();
         self.selected = self.selected.min(rows.len().saturating_sub(1));
         let (up, down, enter) = ctx.input(|input| {
-            (input.key_pressed(egui::Key::ArrowUp), input.key_pressed(egui::Key::ArrowDown), input.key_pressed(egui::Key::Enter))
+            (
+                input.key_pressed(egui::Key::ArrowUp),
+                input.key_pressed(egui::Key::ArrowDown),
+                input.key_pressed(egui::Key::Enter),
+            )
         });
         if up {
             self.selected = self.selected.saturating_sub(1);
@@ -121,34 +165,46 @@ impl ModelModal {
         let mut action = ModalAction::None;
         window("Model").show(ctx, |ui| {
             roomy(ui);
-            let filter = ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text("type to filter").desired_width(f32::INFINITY));
+            let filter = ui.add(
+                egui::TextEdit::singleline(&mut self.filter)
+                    .hint_text("type to filter")
+                    .desired_width(f32::INFINITY),
+            );
             filter.request_focus();
             if filter.changed() {
                 self.selected = 0;
             }
             for list in &self.lists {
                 if let Some(error) = &list.error {
-                    ui.label(RichText::new(format!("{}: {error}", list.provider)).color(theme::c().magenta));
+                    ui.label(
+                        RichText::new(format!("{}: {error}", list.provider))
+                            .color(theme::c().magenta),
+                    );
                 }
             }
             ui.label(RichText::new("Enter choose · Esc close").color(theme::c().dark_gray));
-            egui::ScrollArea::vertical().max_height(310.0).show(ui, |ui| {
-                for (index, (id, recent)) in rows.iter().enumerate() {
-                    let marker = if *id == self.current { "* " } else { "  " };
-                    let tag = if *recent { "  (recent)" } else { "" };
-                    let label = RichText::new(format!("{marker}{id}{tag}"));
-                    let response = ui.selectable_label(index == self.selected, label);
-                    if index == self.selected && (up || down) {
-                        response.scroll_to_me(None);
+            egui::ScrollArea::vertical()
+                .max_height(310.0)
+                .show(ui, |ui| {
+                    for (index, (id, recent)) in rows.iter().enumerate() {
+                        let marker = if *id == self.current { "* " } else { "  " };
+                        let tag = if *recent { "  (recent)" } else { "" };
+                        let label = RichText::new(format!("{marker}{id}{tag}"));
+                        let response = ui.selectable_label(index == self.selected, label);
+                        if index == self.selected && (up || down) {
+                            response.scroll_to_me(None);
+                        }
+                        if response.clicked() {
+                            action = ModalAction::SetModel(id.clone());
+                        }
                     }
-                    if response.clicked() {
-                        action = ModalAction::SetModel(id.clone());
+                    if rows.is_empty() {
+                        ui.label(
+                            RichText::new("no models (is an API key set? try /apikeys)")
+                                .color(theme::c().dark_gray),
+                        );
                     }
-                }
-                if rows.is_empty() {
-                    ui.label(RichText::new("no models (is an API key set? try /apikeys)").color(theme::c().dark_gray));
-                }
-            });
+                });
         });
         if enter {
             if let Some((id, _)) = rows.get(self.selected) {
@@ -167,13 +223,23 @@ pub struct SessionModal {
 impl SessionModal {
     pub fn new(sessions: Vec<SessionInfo>) -> Self {
         // A chat with no prompt has nothing to resume.
-        Self { sessions: sessions.into_iter().filter(|session| !session.first_prompt.is_empty()).collect(), selected: 0 }
+        Self {
+            sessions: sessions
+                .into_iter()
+                .filter(|session| !session.first_prompt.is_empty())
+                .collect(),
+            selected: 0,
+        }
     }
 
     fn show(&mut self, ctx: &egui::Context) -> ModalAction {
         let last = self.sessions.len().saturating_sub(1);
         let (up, down, enter) = ctx.input(|input| {
-            (input.key_pressed(egui::Key::ArrowUp), input.key_pressed(egui::Key::ArrowDown), input.key_pressed(egui::Key::Enter))
+            (
+                input.key_pressed(egui::Key::ArrowUp),
+                input.key_pressed(egui::Key::ArrowDown),
+                input.key_pressed(egui::Key::Enter),
+            )
         });
         if up {
             self.selected = self.selected.saturating_sub(1);
@@ -181,26 +247,37 @@ impl SessionModal {
         if down {
             self.selected = (self.selected + 1).min(last);
         }
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
         let mut action = ModalAction::None;
         window("Resume").show(ctx, |ui| {
             roomy(ui);
             ui.label(RichText::new("Enter resume · Esc close").color(theme::c().dark_gray));
-            egui::ScrollArea::vertical().max_height(330.0).show(ui, |ui| {
-                for (index, session) in self.sessions.iter().enumerate() {
-                    let label = format!("{:>8}  {}", age(now.saturating_sub(session.modified)), session.first_prompt);
-                    let response = ui.selectable_label(index == self.selected, RichText::new(label));
-                    if index == self.selected && (up || down) {
-                        response.scroll_to_me(None);
+            egui::ScrollArea::vertical()
+                .max_height(330.0)
+                .show(ui, |ui| {
+                    for (index, session) in self.sessions.iter().enumerate() {
+                        let label = format!(
+                            "{:>8}  {}",
+                            age(now.saturating_sub(session.modified)),
+                            session.first_prompt
+                        );
+                        let response =
+                            ui.selectable_label(index == self.selected, RichText::new(label));
+                        if index == self.selected && (up || down) {
+                            response.scroll_to_me(None);
+                        }
+                        if response.clicked() {
+                            action = ModalAction::Resume(session.id.clone());
+                        }
                     }
-                    if response.clicked() {
-                        action = ModalAction::Resume(session.id.clone());
+                    if self.sessions.is_empty() {
+                        ui.label(
+                            RichText::new("no saved sessions yet").color(theme::c().dark_gray),
+                        );
                     }
-                }
-                if self.sessions.is_empty() {
-                    ui.label(RichText::new("no saved sessions yet").color(theme::c().dark_gray));
-                }
-            });
+                });
         });
         if enter {
             if let Some(session) = self.sessions.get(self.selected) {
@@ -227,7 +304,10 @@ pub struct KeysModal {
 
 impl KeysModal {
     pub fn new(openrouter: bool, openai: bool, anthropic: bool) -> Self {
-        Self { is_set: [openrouter, openai, anthropic], typed: Default::default() }
+        Self {
+            is_set: [openrouter, openai, anthropic],
+            typed: Default::default(),
+        }
     }
 
     fn show(&mut self, ctx: &egui::Context) -> ModalAction {
@@ -239,10 +319,21 @@ impl KeysModal {
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
             .fixed_size([520.0, 220.0])
             .show(ctx, |ui| {
-            roomy(ui);
+                roomy(ui);
                 for (index, name) in names.iter().enumerate() {
-                    ui.label(RichText::new(format!("{name} {}", if self.is_set[index] { "(set: leave empty to keep)" } else { "(not set)" })));
-                    let edit = ui.add(egui::TextEdit::singleline(&mut self.typed[index]).password(true).desired_width(f32::INFINITY));
+                    ui.label(RichText::new(format!(
+                        "{name} {}",
+                        if self.is_set[index] {
+                            "(set: leave empty to keep)"
+                        } else {
+                            "(not set)"
+                        }
+                    )));
+                    let edit = ui.add(
+                        egui::TextEdit::singleline(&mut self.typed[index])
+                            .password(true)
+                            .desired_width(f32::INFINITY),
+                    );
                     if index == 0 {
                         edit.request_focus();
                     }
@@ -260,7 +351,9 @@ impl KeysModal {
                         action = ModalAction::Close;
                     }
                 });
-                ui.label(RichText::new("Saved to ~/.minerve/keys.json").color(theme::c().dark_gray));
+                ui.label(
+                    RichText::new("Saved to ~/.minerve/keys.json").color(theme::c().dark_gray),
+                );
             });
         action
     }
@@ -276,7 +369,12 @@ pub struct McpModal {
 
 impl McpModal {
     pub fn new(servers: Vec<McpServer>) -> Self {
-        Self { servers, selected: 0, confirm_remove: false, form: None }
+        Self {
+            servers,
+            selected: 0,
+            confirm_remove: false,
+            form: None,
+        }
     }
 
     pub fn update(&mut self, servers: Vec<McpServer>) {
@@ -292,27 +390,36 @@ impl McpModal {
         }
         window("MCP servers").show(ctx, |ui| {
             roomy(ui);
-            egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-                for (index, server) in self.servers.iter().enumerate() {
-                    let state = match server.state.as_str() {
-                        "connected" => format!("connected, {} tools", server.tools),
-                        other => other.replace('_', " "),
-                    };
-                    let label = format!("{:<22}{:<22}{}", server.name, state, server.source);
-                    if ui.selectable_label(index == self.selected, RichText::new(label)).clicked() {
-                        self.selected = index;
-                        self.confirm_remove = false;
+            egui::ScrollArea::vertical()
+                .max_height(200.0)
+                .show(ui, |ui| {
+                    for (index, server) in self.servers.iter().enumerate() {
+                        let state = match server.state.as_str() {
+                            "connected" => format!("connected, {} tools", server.tools),
+                            other => other.replace('_', " "),
+                        };
+                        let label = format!("{:<22}{:<22}{}", server.name, state, server.source);
+                        if ui
+                            .selectable_label(index == self.selected, RichText::new(label))
+                            .clicked()
+                        {
+                            self.selected = index;
+                            self.confirm_remove = false;
+                        }
                     }
-                }
-                if self.servers.is_empty() {
-                    ui.label(RichText::new("no MCP servers yet").color(theme::c().dark_gray));
-                }
-            });
+                    if self.servers.is_empty() {
+                        ui.label(RichText::new("no MCP servers yet").color(theme::c().dark_gray));
+                    }
+                });
             ui.separator();
             if let Some(server) = self.servers.get(self.selected) {
                 ui.label(RichText::new(&server.target).strong());
                 if !server.detail.is_empty() {
-                    let color = if server.state == "failed" { theme::c().magenta } else { theme::c().gray };
+                    let color = if server.state == "failed" {
+                        theme::c().magenta
+                    } else {
+                        theme::c().gray
+                    };
                     ui.label(RichText::new(&server.detail).color(color));
                 }
                 let name = server.name.clone();
@@ -320,22 +427,29 @@ impl McpModal {
                     match server.state.as_str() {
                         "connected" | "connecting" | "logging_in" => {
                             if ui.button(" Disconnect ").clicked() {
-                                action = ModalAction::Send(Command::McpDisconnect { name: name.clone() });
+                                action = ModalAction::Send(Command::McpDisconnect {
+                                    name: name.clone(),
+                                });
                             }
                         }
                         "needs_login" => {
                             if ui.button(" Log in ").clicked() {
-                                action = ModalAction::Send(Command::McpLogin { name: name.clone() });
+                                action =
+                                    ModalAction::Send(Command::McpLogin { name: name.clone() });
                             }
                         }
                         _ => {
                             if ui.button(" Connect ").clicked() {
-                                action = ModalAction::Send(Command::McpConnect { name: name.clone() });
+                                action =
+                                    ModalAction::Send(Command::McpConnect { name: name.clone() });
                             }
                         }
                     }
                     if self.confirm_remove {
-                        if ui.button(RichText::new(" Really remove ").color(theme::c().magenta)).clicked() {
+                        if ui
+                            .button(RichText::new(" Really remove ").color(theme::c().magenta))
+                            .clicked()
+                        {
                             self.confirm_remove = false;
                             action = ModalAction::Send(Command::McpRemove { name: name.clone() });
                         }
@@ -358,8 +472,14 @@ impl McpModal {
     }
 
     fn show_form(&mut self, ctx: &egui::Context, action: &mut ModalAction) {
-        let Some(form) = self.form.as_mut() else { return };
-        let labels = ["Name", "Command or URL", "Env or headers (KEY=value, one per space)"];
+        let Some(form) = self.form.as_mut() else {
+            return;
+        };
+        let labels = [
+            "Name",
+            "Command or URL",
+            "Env or headers (KEY=value, one per space)",
+        ];
         let mut done = false;
         let mut back = false;
         egui::Window::new(RichText::new(" Add MCP server ").color(theme::c().accent))
@@ -369,10 +489,12 @@ impl McpModal {
             .fixed_size([560.0, 240.0])
             .frame(dialog_frame())
             .show(ctx, |ui| {
-            roomy(ui);
+                roomy(ui);
                 for (index, label) in labels.iter().enumerate() {
                     ui.label(*label);
-                    let edit = ui.add(egui::TextEdit::singleline(&mut form[index]).desired_width(f32::INFINITY));
+                    let edit = ui.add(
+                        egui::TextEdit::singleline(&mut form[index]).desired_width(f32::INFINITY),
+                    );
                     if index == 0 {
                         edit.request_focus();
                     }
@@ -385,7 +507,11 @@ impl McpModal {
             });
         if done {
             let [name, command_or_url, env_or_headers] = std::mem::take(form);
-            *action = ModalAction::Send(Command::McpAdd { name, command_or_url, env_or_headers });
+            *action = ModalAction::Send(Command::McpAdd {
+                name,
+                command_or_url,
+                env_or_headers,
+            });
             self.form = None;
         } else if back || ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
             self.form = None;
@@ -398,7 +524,11 @@ mod tests {
     use super::*;
 
     fn modal() -> ModelModal {
-        let list = ModelList { provider: "OpenRouter".into(), models: vec!["a/x".into(), "b/y".into(), "b/z".into()], error: None };
+        let list = ModelList {
+            provider: "OpenRouter".into(),
+            models: vec!["a/x".into(), "b/y".into(), "b/z".into()],
+            error: None,
+        };
         ModelModal::new("a/x".into(), vec!["b/z".into()], vec![list])
     }
 
@@ -417,8 +547,14 @@ mod tests {
 
     #[test]
     fn separators_and_spaces_are_interchangeable() {
-        assert!(matches_tokens("anthropic/claude-fable-5-5", &filter_tokens("fable 5.5")));
-        assert!(!matches_tokens("anthropic/claude-fable-5-1", &filter_tokens("fable 5.5")));
+        assert!(matches_tokens(
+            "anthropic/claude-fable-5-5",
+            &filter_tokens("fable 5.5")
+        ));
+        assert!(!matches_tokens(
+            "anthropic/claude-fable-5-1",
+            &filter_tokens("fable 5.5")
+        ));
     }
 
     #[test]

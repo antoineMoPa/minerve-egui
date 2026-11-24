@@ -38,7 +38,11 @@ pub fn with_context(outputs: &[String], message: &str) -> String {
     if outputs.is_empty() {
         return message.to_string();
     }
-    format!("Output of commands I ran in the shell:\n```\n{}\n```\n\n{}", outputs.join("\n\n"), message)
+    format!(
+        "Output of commands I ran in the shell:\n```\n{}\n```\n\n{}",
+        outputs.join("\n\n"),
+        message
+    )
 }
 
 #[cfg(test)]

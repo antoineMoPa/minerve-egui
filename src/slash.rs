@@ -8,13 +8,25 @@ use crate::theme;
 pub const COMMANDS: [(&str, &str); 13] = [
     ("/about", "describe Minerve"),
     ("/model", "switch models and providers"),
-    ("/goal", "keep working until an evaluator model judges the goal reached: /goal <goal>"),
-    ("/budget", "pause once the session costs this much: /budget <usd>, /budget off"),
+    (
+        "/goal",
+        "keep working until an evaluator model judges the goal reached: /goal <goal>",
+    ),
+    (
+        "/budget",
+        "pause once the session costs this much: /budget <usd>, /budget off",
+    ),
     ("/resume", "continue a saved session"),
     ("/clear", "start a new conversation from fresh"),
     ("/apikeys", "set the OpenRouter, OpenAI and Anthropic keys"),
-    ("/mcp", "manage MCP servers: add, connect, disconnect, remove"),
-    ("/message-apps", "talk to minerve from Slack: set up, status, link your account"),
+    (
+        "/mcp",
+        "manage MCP servers: add, connect, disconnect, remove",
+    ),
+    (
+        "/message-apps",
+        "talk to minerve from Slack: set up, status, link your account",
+    ),
     ("/bootscreen", "replay the boot screen"),
     ("/matrix", "falling letters; any key to leave"),
     ("/tetris", "play a mini Tetris; esc to leave"),
@@ -27,7 +39,11 @@ pub fn matches(input: &str) -> Vec<(&'static str, &'static str)> {
     if !input.starts_with('/') || input.contains(char::is_whitespace) {
         return Vec::new();
     }
-    COMMANDS.iter().filter(|(name, _)| name.starts_with(input)).copied().collect()
+    COMMANDS
+        .iter()
+        .filter(|(name, _)| name.starts_with(input))
+        .copied()
+        .collect()
 }
 
 /// The command a partial `/word` stands for: the first match, as Enter runs it.
@@ -37,7 +53,12 @@ pub fn resolve(input: &str) -> Option<&'static str> {
 
 /// The menu of matches, floating just above the message box (`input_rect`). Returns the
 /// command clicked, to put in the box as Tab would.
-pub fn show_menu(ctx: &egui::Context, id: egui::Id, input_text: &str, input_rect: egui::Rect) -> Option<&'static str> {
+pub fn show_menu(
+    ctx: &egui::Context,
+    id: egui::Id,
+    input_text: &str,
+    input_rect: egui::Rect,
+) -> Option<&'static str> {
     let found = matches(input_text);
     if found.is_empty() {
         return None;
@@ -58,22 +79,41 @@ pub fn show_menu(ctx: &egui::Context, id: egui::Id, input_text: &str, input_rect
                         // Reserved before the row, so the hover fill is drawn under its text.
                         let fill = ui.painter().add(egui::Shape::Noop);
                         let row = ui.horizontal(|ui| {
-                            let name_color = if index == 0 { theme::c().accent } else { theme::c().name };
-                            ui.label(RichText::new(format!("{name:<14}")).font(theme::small()).color(name_color));
-                            ui.label(RichText::new(*description).font(theme::small()).color(theme::c().dark_gray));
+                            let name_color = if index == 0 {
+                                theme::c().accent
+                            } else {
+                                theme::c().name
+                            };
+                            ui.label(
+                                RichText::new(format!("{name:<14}"))
+                                    .font(theme::small())
+                                    .color(name_color),
+                            );
+                            ui.label(
+                                RichText::new(*description)
+                                    .font(theme::small())
+                                    .color(theme::c().dark_gray),
+                            );
                         });
                         let response = ui
                             .interact(row.response.rect, id.with(*name), egui::Sense::click())
                             .on_hover_cursor(egui::CursorIcon::PointingHand);
                         if response.hovered() {
                             let rect = row.response.rect.expand(2.0);
-                            ui.painter().set(fill, egui::Shape::rect_filled(rect, 2.0, theme::c().hairline));
+                            ui.painter().set(
+                                fill,
+                                egui::Shape::rect_filled(rect, 2.0, theme::c().hairline),
+                            );
                         }
                         if response.clicked() {
                             picked = Some(*name);
                         }
                     }
-                    ui.label(RichText::new("Tab completes · click picks").font(theme::small()).color(theme::c().dim));
+                    ui.label(
+                        RichText::new("Tab completes · click picks")
+                            .font(theme::small())
+                            .color(theme::c().dim),
+                    );
                 });
         });
     picked

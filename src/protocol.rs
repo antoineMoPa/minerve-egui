@@ -23,25 +23,59 @@ pub enum Event {
         #[serde(default)]
         cwd: String,
     },
-    Session { session_id: String },
-    State { state: AgentState },
+    Session {
+        session_id: String,
+    },
+    State {
+        state: AgentState,
+    },
     /// The chat as (role, content), the way the TUI shows it.
-    Transcript { messages: Vec<(String, String)> },
-    Status { status: String },
-    Notice { notice: String },
-    Usage { summary: String },
+    Transcript {
+        messages: Vec<(String, String)>,
+    },
+    Status {
+        status: String,
+    },
+    Notice {
+        notice: String,
+    },
+    Usage {
+        summary: String,
+    },
     /// The boot clip (plain-text frames, blank = transparent) and the pro tips, answering `get_intro`.
-    Intro { fps: u32, caption: String, frames: Vec<String>, tips: Vec<String> },
+    Intro {
+        fps: u32,
+        caption: String,
+        frames: Vec<String>,
+        tips: Vec<String>,
+    },
     /// Answers `list_models`: every keyed provider's models, and the recent and current ones.
-    Models { current: String, recent: Vec<String>, lists: Vec<ModelList> },
+    Models {
+        current: String,
+        recent: Vec<String>,
+        lists: Vec<ModelList>,
+    },
     /// Answers `list_sessions`, most recent first.
-    Sessions { sessions: Vec<SessionInfo> },
+    Sessions {
+        sessions: Vec<SessionInfo>,
+    },
     /// Which provider keys are set (never their values).
-    ApiKeys { openrouter: bool, openai: bool, anthropic: bool },
-    McpServers { servers: Vec<McpServer> },
-    MessageApps { slack: MessageAppsStatus },
+    ApiKeys {
+        openrouter: bool,
+        openai: bool,
+        anthropic: bool,
+    },
+    McpServers {
+        servers: Vec<McpServer>,
+    },
+    MessageApps {
+        slack: MessageAppsStatus,
+    },
     /// The Slack app manifest to paste into Slack, answering `message_apps_manifest`.
-    MessageAppsManifest { manifest: String, url: String },
+    MessageAppsManifest {
+        manifest: String,
+        url: String,
+    },
     #[serde(other)]
     Unknown,
 }
@@ -98,28 +132,58 @@ pub enum Command {
     Cancel {},
     NewSession {},
     GetIntro {},
-    Goal { goal: String },
+    Goal {
+        goal: String,
+    },
     /// `/budget <arg>`: minerve answers with a notice.
-    Budget { arg: String },
+    Budget {
+        arg: String,
+    },
     ListModels {},
-    SetModel { model: String },
+    SetModel {
+        model: String,
+    },
     ListSessions {},
-    ResumeSession { id: String },
+    ResumeSession {
+        id: String,
+    },
     GetApiKeys {},
     MessageAppsStatus {},
-    MessageAppsSave { bot_name: String, app_token: Option<String>, bot_token: Option<String> },
+    MessageAppsSave {
+        bot_name: String,
+        app_token: Option<String>,
+        bot_token: Option<String>,
+    },
     MessageAppsStart {},
     MessageAppsStop {},
     MessageAppsLink {},
     MessageAppsCancelLink {},
-    MessageAppsManifest { bot_name: String },
+    MessageAppsManifest {
+        bot_name: String,
+    },
     ListMcp {},
-    McpConnect { name: String },
-    McpDisconnect { name: String },
-    McpLogin { name: String },
-    McpRemove { name: String },
-    McpAdd { name: String, command_or_url: String, env_or_headers: String },
-    SetApiKeys { openrouter: Option<String>, openai: Option<String>, anthropic: Option<String> },
+    McpConnect {
+        name: String,
+    },
+    McpDisconnect {
+        name: String,
+    },
+    McpLogin {
+        name: String,
+    },
+    McpRemove {
+        name: String,
+    },
+    McpAdd {
+        name: String,
+        command_or_url: String,
+        env_or_headers: String,
+    },
+    SetApiKeys {
+        openrouter: Option<String>,
+        openai: Option<String>,
+        anthropic: Option<String>,
+    },
 }
 
 #[cfg(test)]
@@ -134,49 +198,116 @@ mod tests {
     fn events_parse_from_the_lines_minerve_sends() {
         assert_eq!(
             parse(r#"{"type":"hello","version":1}"#),
-            Event::Hello { version: 1, minerve_version: String::new(), features: vec![], cwd: String::new() }
+            Event::Hello {
+                version: 1,
+                minerve_version: String::new(),
+                features: vec![],
+                cwd: String::new()
+            }
         );
         assert_eq!(
-            parse(r#"{"type":"hello","version":1,"minerve_version":"0.8.0","features":["serve","intro"]}"#),
-            Event::Hello { version: 1, minerve_version: "0.8.0".into(), features: vec!["serve".into(), "intro".into()], cwd: String::new() }
+            parse(
+                r#"{"type":"hello","version":1,"minerve_version":"0.8.0","features":["serve","intro"]}"#
+            ),
+            Event::Hello {
+                version: 1,
+                minerve_version: "0.8.0".into(),
+                features: vec!["serve".into(), "intro".into()],
+                cwd: String::new()
+            }
         );
         assert_eq!(
             parse(r#"{"type":"intro","fps":24,"caption":"c","frames":["f"],"tips":["t"]}"#),
-            Event::Intro { fps: 24, caption: "c".into(), frames: vec!["f".into()], tips: vec!["t".into()] }
+            Event::Intro {
+                fps: 24,
+                caption: "c".into(),
+                frames: vec!["f".into()],
+                tips: vec!["t".into()]
+            }
         );
         assert_eq!(
             parse(r#"{"type":"state","state":"waiting_for_input"}"#),
-            Event::State { state: AgentState::WaitingForInput }
+            Event::State {
+                state: AgentState::WaitingForInput
+            }
         );
         assert_eq!(
             parse(r#"{"type":"transcript","messages":[["user","hi"]]}"#),
-            Event::Transcript { messages: vec![("user".into(), "hi".into())] }
+            Event::Transcript {
+                messages: vec![("user".into(), "hi".into())]
+            }
         );
-        assert_eq!(parse(r#"{"type":"status","status":""}"#), Event::Status { status: String::new() });
-        assert_eq!(parse(r#"{"type":"notice","notice":"n"}"#), Event::Notice { notice: "n".into() });
-        assert_eq!(parse(r#"{"type":"usage","summary":"s"}"#), Event::Usage { summary: "s".into() });
+        assert_eq!(
+            parse(r#"{"type":"status","status":""}"#),
+            Event::Status {
+                status: String::new()
+            }
+        );
+        assert_eq!(
+            parse(r#"{"type":"notice","notice":"n"}"#),
+            Event::Notice { notice: "n".into() }
+        );
+        assert_eq!(
+            parse(r#"{"type":"usage","summary":"s"}"#),
+            Event::Usage {
+                summary: "s".into()
+            }
+        );
     }
 
     #[test]
     fn events_of_other_kinds_are_unknown() {
-        assert_eq!(parse(r#"{"type":"message","message":{"role":"user"}}"#), Event::Unknown);
-        assert_eq!(parse(r#"{"type":"history","session_id":"x","messages":[]}"#), Event::Unknown);
+        assert_eq!(
+            parse(r#"{"type":"message","message":{"role":"user"}}"#),
+            Event::Unknown
+        );
+        assert_eq!(
+            parse(r#"{"type":"history","session_id":"x","messages":[]}"#),
+            Event::Unknown
+        );
     }
 
     #[test]
     fn commands_serialize_to_the_lines_minerve_reads() {
         let line = |c: &Command| serde_json::to_string(c).unwrap();
-        assert_eq!(line(&Command::Submit { text: "hi".into(), images: Vec::new() }), r#"{"type":"submit","text":"hi"}"#);
+        assert_eq!(
+            line(&Command::Submit {
+                text: "hi".into(),
+                images: Vec::new()
+            }),
+            r#"{"type":"submit","text":"hi"}"#
+        );
         assert_eq!(line(&Command::Cancel {}), r#"{"type":"cancel"}"#);
         assert_eq!(line(&Command::NewSession {}), r#"{"type":"new_session"}"#);
-        assert_eq!(line(&Command::Goal { goal: "x".into() }), r#"{"type":"goal","goal":"x"}"#);
-        assert_eq!(line(&Command::Budget { arg: "2".into() }), r#"{"type":"budget","arg":"2"}"#);
-        assert_eq!(line(&Command::ListModels {}), r#"{"type":"list_models"}"#);
-        assert_eq!(line(&Command::MessageAppsManifest { bot_name: "b".into() }), r#"{"type":"message_apps_manifest","bot_name":"b"}"#);
-        assert_eq!(line(&Command::McpRemove { name: "a".into() }), r#"{"type":"mcp_remove","name":"a"}"#);
-        assert_eq!(line(&Command::ResumeSession { id: "a".into() }), r#"{"type":"resume_session","id":"a"}"#);
         assert_eq!(
-            line(&Command::SetApiKeys { openrouter: Some("k".into()), openai: None, anthropic: None }),
+            line(&Command::Goal { goal: "x".into() }),
+            r#"{"type":"goal","goal":"x"}"#
+        );
+        assert_eq!(
+            line(&Command::Budget { arg: "2".into() }),
+            r#"{"type":"budget","arg":"2"}"#
+        );
+        assert_eq!(line(&Command::ListModels {}), r#"{"type":"list_models"}"#);
+        assert_eq!(
+            line(&Command::MessageAppsManifest {
+                bot_name: "b".into()
+            }),
+            r#"{"type":"message_apps_manifest","bot_name":"b"}"#
+        );
+        assert_eq!(
+            line(&Command::McpRemove { name: "a".into() }),
+            r#"{"type":"mcp_remove","name":"a"}"#
+        );
+        assert_eq!(
+            line(&Command::ResumeSession { id: "a".into() }),
+            r#"{"type":"resume_session","id":"a"}"#
+        );
+        assert_eq!(
+            line(&Command::SetApiKeys {
+                openrouter: Some("k".into()),
+                openai: None,
+                anthropic: None
+            }),
             r#"{"type":"set_api_keys","openrouter":"k","openai":null,"anthropic":null}"#
         );
         assert_eq!(line(&Command::GetIntro {}), r#"{"type":"get_intro"}"#);

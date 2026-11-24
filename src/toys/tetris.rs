@@ -48,7 +48,12 @@ struct Piece {
 
 impl Piece {
     fn spawn(kind: usize) -> Self {
-        Self { kind, x: WIDTH as i32 / 2, y: 1, offsets: SHAPES[kind] }
+        Self {
+            kind,
+            x: WIDTH as i32 / 2,
+            y: 1,
+            offsets: SHAPES[kind],
+        }
     }
 
     fn cells(&self) -> [(i32, i32); 4] {
@@ -56,7 +61,10 @@ impl Piece {
     }
 
     fn rotated(&self) -> Self {
-        Self { offsets: self.offsets.map(|(dx, dy)| (-dy, dx)), ..*self }
+        Self {
+            offsets: self.offsets.map(|(dx, dy)| (-dy, dx)),
+            ..*self
+        }
     }
 }
 
@@ -113,17 +121,27 @@ impl Tetris {
     }
 
     fn fall_interval(&self) -> Duration {
-        Duration::from_millis(800u64.saturating_sub(70 * u64::from(self.level() - 1)).max(100))
+        Duration::from_millis(
+            800u64
+                .saturating_sub(70 * u64::from(self.level() - 1))
+                .max(100),
+        )
     }
 
     fn fits(&self, piece: &Piece) -> bool {
         piece.cells().iter().all(|&(x, y)| {
-            (0..WIDTH as i32).contains(&x) && (0..HEIGHT as i32).contains(&y) && self.board[y as usize][x as usize].is_none()
+            (0..WIDTH as i32).contains(&x)
+                && (0..HEIGHT as i32).contains(&y)
+                && self.board[y as usize][x as usize].is_none()
         })
     }
 
     fn try_move(&mut self, dx: i32, dy: i32) -> bool {
-        let moved = Piece { x: self.piece.x + dx, y: self.piece.y + dy, ..self.piece };
+        let moved = Piece {
+            x: self.piece.x + dx,
+            y: self.piece.y + dy,
+            ..self.piece
+        };
         let fits = self.fits(&moved);
         if fits {
             self.piece = moved;
@@ -134,7 +152,10 @@ impl Tetris {
     fn rotate(&mut self) {
         let turned = self.piece.rotated();
         for kick in ROTATION_KICKS {
-            let candidate = Piece { x: turned.x + kick, ..turned };
+            let candidate = Piece {
+                x: turned.x + kick,
+                ..turned
+            };
             if self.fits(&candidate) {
                 self.piece = candidate;
                 return;
@@ -147,7 +168,12 @@ impl Tetris {
         for (x, y) in self.piece.cells() {
             self.board[y as usize][x as usize] = Some(self.piece.kind);
         }
-        let kept: Vec<_> = self.board.iter().copied().filter(|row| row.iter().any(|cell| cell.is_none())).collect();
+        let kept: Vec<_> = self
+            .board
+            .iter()
+            .copied()
+            .filter(|row| row.iter().any(|cell| cell.is_none()))
+            .collect();
         let cleared = HEIGHT - kept.len();
         let mut board = [[None; WIDTH]; HEIGHT];
         for (i, row) in kept.into_iter().enumerate() {
@@ -213,10 +239,16 @@ impl Tetris {
 
     pub fn show(&mut self, ui: &mut egui::Ui, rect: Rect) -> ToyStatus {
         let keys: Vec<Key> = ui.ctx().input(|input| {
-            input.events.iter().filter_map(|event| match event {
-                egui::Event::Key { key, pressed: true, .. } => Some(*key),
-                _ => None,
-            }).collect()
+            input
+                .events
+                .iter()
+                .filter_map(|event| match event {
+                    egui::Event::Key {
+                        key, pressed: true, ..
+                    } => Some(*key),
+                    _ => None,
+                })
+                .collect()
         });
         for key in keys {
             if !self.handle_key(key) {
@@ -237,7 +269,12 @@ impl Tetris {
         let total = board_size.x + cell * 2.0 + panel_width;
         let origin = rect.center() - egui::vec2(total / 2.0, board_size.y / 2.0);
         let board = Rect::from_min_size(origin, board_size);
-        painter.rect_stroke(board.expand(2.0), 0.0, egui::Stroke::new(1.0, theme::c().accent), egui::StrokeKind::Outside);
+        painter.rect_stroke(
+            board.expand(2.0),
+            0.0,
+            egui::Stroke::new(1.0, theme::c().accent),
+            egui::StrokeKind::Outside,
+        );
 
         let mut grid = self.board;
         for (x, y) in self.piece.cells() {
@@ -257,7 +294,13 @@ impl Tetris {
         let panel = egui::pos2(board.right() + cell * 2.0, board.top());
         let font = theme::mono();
         let line = |index: f32, text: String, color: Color32| {
-            painter.text(panel + egui::vec2(0.0, index * 18.0), Align2::LEFT_TOP, text, font.clone(), color);
+            painter.text(
+                panel + egui::vec2(0.0, index * 18.0),
+                Align2::LEFT_TOP,
+                text,
+                font.clone(),
+                color,
+            );
         };
         line(0.0, "score".into(), theme::c().gray);
         line(1.0, self.score.to_string(), theme::c().bright);
@@ -267,17 +310,43 @@ impl Tetris {
         line(7.0, self.level().to_string(), theme::c().bright);
         line(9.0, "next".into(), theme::c().gray);
         for (dx, dy) in SHAPES[self.next] {
-            let min = panel + egui::vec2((dx + 1) as f32 * cell, 10.0 * 18.0 + (dy + 1) as f32 * cell);
-            painter.rect_filled(Rect::from_min_size(min, egui::vec2(cell, cell)).shrink(1.0), 0.0, COLORS[self.next]);
+            let min =
+                panel + egui::vec2((dx + 1) as f32 * cell, 10.0 * 18.0 + (dy + 1) as f32 * cell);
+            painter.rect_filled(
+                Rect::from_min_size(min, egui::vec2(cell, cell)).shrink(1.0),
+                0.0,
+                COLORS[self.next],
+            );
         }
         let help_top = 10.0 * 18.0 + cell * 3.0;
-        for (index, text) in ["←→ move  ↑ turn", "↓ soft  space drop", "esc/q leave"].iter().enumerate() {
-            painter.text(panel + egui::vec2(0.0, help_top + index as f32 * 18.0), Align2::LEFT_TOP, *text, font.clone(), theme::c().dark_gray);
+        for (index, text) in ["←→ move  ↑ turn", "↓ soft  space drop", "esc/q leave"]
+            .iter()
+            .enumerate()
+        {
+            painter.text(
+                panel + egui::vec2(0.0, help_top + index as f32 * 18.0),
+                Align2::LEFT_TOP,
+                *text,
+                font.clone(),
+                theme::c().dark_gray,
+            );
         }
         if self.over {
             let top = help_top + 4.0 * 18.0;
-            painter.text(panel + egui::vec2(0.0, top), Align2::LEFT_TOP, "game over", font.clone(), theme::c().magenta);
-            painter.text(panel + egui::vec2(0.0, top + 18.0), Align2::LEFT_TOP, "r to restart", font, theme::c().gray);
+            painter.text(
+                panel + egui::vec2(0.0, top),
+                Align2::LEFT_TOP,
+                "game over",
+                font.clone(),
+                theme::c().magenta,
+            );
+            painter.text(
+                panel + egui::vec2(0.0, top + 18.0),
+                Align2::LEFT_TOP,
+                "r to restart",
+                font,
+                theme::c().gray,
+            );
         }
     }
 }
@@ -299,7 +368,11 @@ mod tests {
         assert!(game.piece.cells().iter().all(|&(x, _)| x >= 0));
         assert!(!game.try_move(-1, 0));
         while game.try_move(0, 1) {}
-        assert!(game.piece.cells().iter().any(|&(_, y)| y == HEIGHT as i32 - 1));
+        assert!(game
+            .piece
+            .cells()
+            .iter()
+            .any(|&(_, y)| y == HEIGHT as i32 - 1));
     }
 
     #[test]
@@ -333,13 +406,23 @@ mod tests {
         }
         game.board[HEIGHT - 1][3..7].fill(None);
         game.board[HEIGHT - 2][0] = None;
-        game.piece = Piece { kind: 0, x: 4, y: HEIGHT as i32 - 1, offsets: SHAPES[0] };
+        game.piece = Piece {
+            kind: 0,
+            x: 4,
+            y: HEIGHT as i32 - 1,
+            offsets: SHAPES[0],
+        };
         // The I covers columns 3..=6 of the last row: one row clears.
         game.lock();
         assert_eq!(game.lines, 1);
         assert_eq!(game.score, 100);
         // The row with the hole fell to the bottom.
-        assert!(game.board[HEIGHT - 1][0].is_none() && game.board[HEIGHT - 1][1..].iter().all(|cell| cell.is_some()));
+        assert!(
+            game.board[HEIGHT - 1][0].is_none()
+                && game.board[HEIGHT - 1][1..]
+                    .iter()
+                    .all(|cell| cell.is_some())
+        );
     }
 
     #[test]
@@ -347,7 +430,11 @@ mod tests {
         let mut game = game_with(1);
         let start = game.piece.y;
         game.hard_drop();
-        assert!(game.score >= 2 && game.score % 2 == 0, "start {start}, score {}", game.score);
+        assert!(
+            game.score >= 2 && game.score % 2 == 0,
+            "start {start}, score {}",
+            game.score
+        );
     }
 
     #[test]

@@ -15,7 +15,11 @@ pub struct Screenshot {
 
 impl Screenshot {
     pub fn new(path: PathBuf, after: Duration) -> Self {
-        Self { path, at: Instant::now() + after, requested: false }
+        Self {
+            path,
+            at: Instant::now() + after,
+            requested: false,
+        }
     }
 
     /// Asks for the picture once the wait is over, saves it when it arrives, then exits.

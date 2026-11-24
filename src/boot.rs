@@ -66,7 +66,8 @@ impl BootClip {
 
     /// When the clip ended: the end of the last frame.
     fn ended_at(&self) -> Option<Instant> {
-        let natural_end = self.started + Duration::from_micros(self.frames.len() as u64 * self.frame_micros);
+        let natural_end =
+            self.started + Duration::from_micros(self.frames.len() as u64 * self.frame_micros);
         (Instant::now() >= natural_end).then_some(natural_end)
     }
 
@@ -129,7 +130,8 @@ impl BootClip {
         let (aw, ah) = (cols, rows);
         let (sw, sh) = (width as i32, height as i32);
         // 0.8 shrinks the fitted video by 20%, leaving more of the dot pattern visible around it.
-        let scale = 0.8 * ((aw - 4).max(1) as f32 / sw as f32).min((ah - 4).max(1) as f32 / sh as f32);
+        let scale =
+            0.8 * ((aw - 4).max(1) as f32 / sw as f32).min((ah - 4).max(1) as f32 / sh as f32);
         let w = ((sw as f32 * scale) as i32).max(1);
         let h = ((sh as f32 * scale) as i32).max(1);
         let vx = (aw - w) / 2;
@@ -143,7 +145,8 @@ impl BootClip {
         let edge_distance = |c: i32, r: i32| (c.min(w - 1 - c)).min(2 * r.min(h - 1 - r));
         // Stable pseudo-random value in [0, 1) per cell.
         let cell_hash = |x: i32, y: i32| {
-            let h = ((x as u32).wrapping_mul(73_856_093) ^ (y as u32).wrapping_mul(19_349_663)) % 1000;
+            let h =
+                ((x as u32).wrapping_mul(73_856_093) ^ (y as u32).wrapping_mul(19_349_663)) % 1000;
             h as f32 / 1000.0
         };
 
@@ -156,7 +159,12 @@ impl BootClip {
                     continue;
                 }
                 if erosion.is_none_or(|e| cell_hash(x, y) >= e) {
-                    cells.push(BootCell { x, y, ch: '\u{b7}', shade: BootShade::Dot });
+                    cells.push(BootCell {
+                        x,
+                        y,
+                        ch: '\u{b7}',
+                        shade: BootShade::Dot,
+                    });
                 }
             }
         }
@@ -169,14 +177,24 @@ impl BootClip {
                 let sr = (r * sh / h) as usize;
                 for c in 0..w {
                     let sc = (c * sw / w) as usize;
-                    let ch = src.get(sr).and_then(|row| row.get(sc)).copied().unwrap_or(' ');
+                    let ch = src
+                        .get(sr)
+                        .and_then(|row| row.get(sc))
+                        .copied()
+                        .unwrap_or(' ');
                     let (x, y) = (vx + c, vy + r);
                     // Video cells in the blend band show with a chance rising from the border
                     // inward, so the edge dissolves into the dots.
                     let d = edge_distance(c, r);
-                    let show = d >= EDGE_BLEND || cell_hash(x, y) < (d as f32 + 0.5) / EDGE_BLEND as f32;
+                    let show =
+                        d >= EDGE_BLEND || cell_hash(x, y) < (d as f32 + 0.5) / EDGE_BLEND as f32;
                     if show && ch != ' ' && in_area(x, y) {
-                        cells.push(BootCell { x, y, ch, shade: BootShade::Video });
+                        cells.push(BootCell {
+                            x,
+                            y,
+                            ch,
+                            shade: BootShade::Video,
+                        });
                     }
                 }
             }
@@ -191,7 +209,12 @@ impl BootClip {
         for (col, ch) in self.caption.chars().enumerate() {
             let x = cap_l + col as i32;
             if in_area(x, caption_y) {
-                cells.push(BootCell { x, y: caption_y, ch, shade: BootShade::Caption });
+                cells.push(BootCell {
+                    x,
+                    y: caption_y,
+                    ch,
+                    shade: BootShade::Caption,
+                });
             }
         }
 
@@ -207,13 +230,23 @@ impl BootClip {
         if sweep.is_some() {
             for x in (dash_l..lf).chain(rf + 1..=dash_r) {
                 if in_area(x, caption_y) {
-                    cells.push(BootCell { x, y: caption_y, ch: ' ', shade: BootShade::Caption });
+                    cells.push(BootCell {
+                        x,
+                        y: caption_y,
+                        ch: ' ',
+                        shade: BootShade::Caption,
+                    });
                 }
             }
         }
         for x in [lf, rf] {
             if in_area(x, caption_y) {
-                cells.push(BootCell { x, y: caption_y, ch: '-', shade: BootShade::Dash });
+                cells.push(BootCell {
+                    x,
+                    y: caption_y,
+                    ch: '-',
+                    shade: BootShade::Dash,
+                });
             }
         }
         cells
@@ -226,7 +259,12 @@ mod tests {
 
     fn clip() -> BootClip {
         let frame = "  ####  \n ###### \n  ####  ".to_string();
-        BootClip::new(24, "loading ancient knowledge".into(), vec![frame.clone(), frame]).unwrap()
+        BootClip::new(
+            24,
+            "loading ancient knowledge".into(),
+            vec![frame.clone(), frame],
+        )
+        .unwrap()
     }
 
     #[test]
@@ -234,10 +272,18 @@ mod tests {
         let boot = clip();
         let cells = boot.cells(80, 30);
         assert!(!cells.is_empty());
-        assert!(cells.iter().all(|c| (0..80).contains(&c.x) && (0..30).contains(&c.y)));
-        let caption_row = cells.iter().find(|c| c.shade == BootShade::Caption).unwrap().y;
-        let mut caption: Vec<&BootCell> =
-            cells.iter().filter(|c| c.shade == BootShade::Caption && c.y == caption_row).collect();
+        assert!(cells
+            .iter()
+            .all(|c| (0..80).contains(&c.x) && (0..30).contains(&c.y)));
+        let caption_row = cells
+            .iter()
+            .find(|c| c.shade == BootShade::Caption)
+            .unwrap()
+            .y;
+        let mut caption: Vec<&BootCell> = cells
+            .iter()
+            .filter(|c| c.shade == BootShade::Caption && c.y == caption_row)
+            .collect();
         caption.sort_by_key(|c| c.x);
         let text: String = caption.iter().map(|c| c.ch).collect();
         assert_eq!(text, "loading ancient knowledge");

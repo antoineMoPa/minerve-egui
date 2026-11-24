@@ -5,7 +5,11 @@ use eframe::egui::{text::LayoutJob, Color32, TextFormat};
 use crate::theme;
 
 fn format(color: Color32) -> TextFormat {
-    TextFormat { font_id: theme::small(), color, ..Default::default() }
+    TextFormat {
+        font_id: theme::small(),
+        color,
+        ..Default::default()
+    }
 }
 
 /// `Sent: 7.5k | Cost: $0.0010` as dim labels, bright values and `·` between.
@@ -19,7 +23,11 @@ pub fn usage_job(summary: &str) -> LayoutJob {
             Some((label, value)) => {
                 job.append(&format!("{label} "), 0.0, format(theme::c().dark_gray));
                 // The cost is what people look for: brightest.
-                let color = if label == "Cost" { theme::c().bright } else { theme::c().gray };
+                let color = if label == "Cost" {
+                    theme::c().bright
+                } else {
+                    theme::c().gray
+                };
                 job.append(value, 0.0, format(color));
             }
             None => job.append(part, 0.0, format(theme::c().gray)),
@@ -31,10 +39,15 @@ pub fn usage_job(summary: &str) -> LayoutJob {
 /// `~/prog/minerve` for the bar's left side: where minerve works, `workdir` when the launcher
 /// names one, else this process's folder.
 pub fn tilde_cwd(workdir: Option<&std::path::Path>) -> String {
-    let Some(dir) = workdir.map(std::path::Path::to_path_buf).or_else(|| std::env::current_dir().ok()) else {
+    let Some(dir) = workdir
+        .map(std::path::Path::to_path_buf)
+        .or_else(|| std::env::current_dir().ok())
+    else {
         return String::new();
     };
-    match dirs::home_dir().and_then(|home| dir.strip_prefix(&home).ok().map(|rest| rest.to_path_buf())) {
+    match dirs::home_dir()
+        .and_then(|home| dir.strip_prefix(&home).ok().map(|rest| rest.to_path_buf()))
+    {
         Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
         Some(rest) => format!("~/{}", rest.display()),
         None => dir.display().to_string(),
