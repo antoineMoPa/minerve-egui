@@ -1,5 +1,6 @@
-//! Messages sent while a turn runs: they wait here, oldest first, and one is sent each time a
-//! turn ends, like the terminal app's queue. Esc takes the newest one back into the message box.
+//! Messages sent while a turn runs: they wait here, oldest first, and all go together as one
+//! message when the turn ends, like the terminal app's queue. Esc takes the newest one back
+//! into the message box.
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -29,9 +30,16 @@ impl MessageQueue {
         self.messages.push_back(message);
     }
 
-    /// The message to send now that a turn ended.
-    pub fn take_oldest_message(&mut self) -> Option<QueuedMessage> {
-        self.messages.pop_front()
+    /// The message to send now that a turn ended: every waiting message, oldest first, as one,
+    /// so the model reads them all before it answers.
+    pub fn take_all_messages_as_one(&mut self) -> Option<QueuedMessage> {
+        let mut merged = self.messages.pop_front()?;
+        for message in self.messages.drain(..) {
+            merged.text.push_str("\n\n");
+            merged.text.push_str(&message.text);
+            merged.images.extend(message.images);
+        }
+        Some(merged)
     }
 
     /// The message Esc gives back to the message box.
@@ -69,14 +77,39 @@ mod tests {
     }
 
     #[test]
-    fn the_oldest_is_sent_first_and_the_newest_is_taken_back() {
+    fn all_messages_are_sent_as_one_and_the_newest_is_taken_back() {
         let mut queue = MessageQueue::default();
         for text in ["one", "two", "three"] {
             queue.push_message(message(text));
         }
         assert_eq!(queue.list_texts(), ["one", "two", "three"]);
         assert_eq!(queue.take_newest_message(), Some(message("three")));
-        assert_eq!(queue.take_oldest_message(), Some(message("one")));
+        assert_eq!(
+            queue.take_all_messages_as_one(),
+            Some(message("one\n\ntwo"))
+        );
+        assert!(queue.is_empty());
+        assert_eq!(queue.take_all_messages_as_one(), None);
+    }
+
+    #[test]
+    fn the_images_of_merged_messages_keep_their_order() {
+        let mut queue = MessageQueue::default();
+        for (text, image) in [("one", "a.png"), ("two", "b.png")] {
+            queue.push_message(QueuedMessage {
+                text: text.to_string(),
+                images: vec![("[Image #1]".to_string(), PathBuf::from(image))],
+            });
+        }
+        let merged = queue.take_all_messages_as_one().unwrap();
+        let paths: Vec<_> = merged.images.iter().map(|(_, path)| path.clone()).collect();
+        assert_eq!(paths, [PathBuf::from("a.png"), PathBuf::from("b.png")]);
+    }
+
+    #[test]
+    fn a_cleared_queue_is_empty() {
+        let mut queue = MessageQueue::default();
+        queue.push_message(message("one"));
         assert_eq!(queue.len(), 1);
         queue.clear_messages();
         assert!(queue.is_empty());

@@ -316,7 +316,7 @@ impl MinerveView {
             Event::State { state } => {
                 self.working = state == AgentState::Working;
                 if !self.working {
-                    self.send_next_queued_message();
+                    self.send_queued_messages();
                 }
             }
             Event::Transcript { messages } => self.transcript = messages,
@@ -412,7 +412,7 @@ impl MinerveView {
                 text: trimmed.to_string(),
                 images: self.input.take_images(trimmed),
             };
-            // While a turn runs the message waits; older queued ones go first.
+            // While a turn runs the message waits, and goes with the others waiting.
             if self.working || !self.queue.is_empty() {
                 self.queue.push_message(message);
             } else {
@@ -470,12 +470,12 @@ impl MinerveView {
         self.working = true;
     }
 
-    /// Sends the oldest queued message; called when minerve says a turn ended.
-    fn send_next_queued_message(&mut self) {
+    /// Sends every queued message as one; called when minerve says a turn ended.
+    fn send_queued_messages(&mut self) {
         if self.backend.is_none() {
             return;
         }
-        if let Some(message) = self.queue.take_oldest_message() {
+        if let Some(message) = self.queue.take_all_messages_as_one() {
             self.send_message(message);
         }
     }

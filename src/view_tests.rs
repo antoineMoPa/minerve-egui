@@ -38,7 +38,7 @@ fn end_turn(view: &mut MinerveView) {
 }
 
 #[test]
-fn messages_sent_while_a_turn_runs_wait_and_go_one_per_ended_turn() {
+fn messages_sent_while_a_turn_runs_wait_and_go_together_when_it_ends() {
     let ctx = egui::Context::default();
     let (mut view, sent) = attach_view_to_recording_minerve(&ctx);
     view.submit("one".to_string());
@@ -48,12 +48,12 @@ fn messages_sent_while_a_turn_runs_wait_and_go_one_per_ended_turn() {
     assert_eq!(view.queue.list_texts(), ["two", "three"]);
 
     end_turn(&mut view);
-    assert_eq!(list_submitted_texts(&sent), ["one", "two"]);
-    assert!(view.working, "the queued message started a turn");
+    assert_eq!(list_submitted_texts(&sent), ["one", "two\n\nthree"]);
+    assert!(view.queue.is_empty());
+    assert!(view.working, "the queued messages started a turn");
 
     end_turn(&mut view);
-    end_turn(&mut view);
-    assert_eq!(list_submitted_texts(&sent), ["one", "two", "three"]);
+    assert_eq!(list_submitted_texts(&sent).len(), 2);
     assert!(!view.working);
 }
 
