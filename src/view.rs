@@ -315,10 +315,15 @@ impl MinerveView {
             }
             Event::State { state } => {
                 self.working = state == AgentState::Working;
-                if !self.working {
+                if !self.working && self.has_feature("queue") {
+                    // minerve ends a turn only once nothing waits: a message still here started
+                    // a turn of its own, sent as that one ended.
+                    self.queue.clear_messages();
+                } else if !self.working {
                     self.send_queued_messages();
                 }
             }
+            Event::QueuedSent { count } => self.queue.forget_oldest_messages(count),
             Event::Transcript { messages } => self.transcript = messages,
             Event::Status { status } => self.status = status,
             Event::Notice { notice } => self.notices.push(notice),
@@ -412,8 +417,12 @@ impl MinerveView {
                 text: trimmed.to_string(),
                 images: self.input.take_images(trimmed),
             };
-            // While a turn runs the message waits, and goes with the others waiting.
-            if self.working || !self.queue.is_empty() {
+            // While a turn runs the message waits. minerve adds it to the turn after the tool
+            // calls it is running; an older minerve gets it, with the others, when the turn ends.
+            if self.working && self.has_feature("queue") {
+                self.queue.push_message(message.clone());
+                self.send_message(message);
+            } else if self.working || !self.queue.is_empty() {
                 self.queue.push_message(message);
             } else {
                 self.send_message(message);
@@ -422,7 +431,7 @@ impl MinerveView {
         }
         if trimmed == "/clear" {
             self.pending_shell.clear();
-            self.queue.clear_messages();
+            self.drop_queued_messages();
             if self.has_feature("new_session") {
                 self.send(Command::NewSession {});
             } else {
@@ -456,7 +465,8 @@ impl MinerveView {
         self.input.remember(trimmed);
     }
 
-    /// Sends `message` as a new turn, with the `!command` outputs kept for it.
+    /// Sends `message`, with the `!command` outputs kept for it: it starts a turn, or waits in
+    /// minerve for the running one.
     fn send_message(&mut self, message: QueuedMessage) {
         let text = crate::shell::with_context(&self.pending_shell, &message.text);
         self.pending_shell.clear();
@@ -485,9 +495,23 @@ impl MinerveView {
         let Some(message) = self.queue.take_newest_message() else {
             return false;
         };
+        // If the turn took it just now, it is both sent and back in the box.
+        if self.has_feature("queue") {
+            self.send(Command::UnqueueNewest {});
+        }
         self.input
             .put_back_message(ctx, &message.text, message.images);
         true
+    }
+
+    /// Forgets the queued messages, here and in minerve.
+    fn drop_queued_messages(&mut self) {
+        if self.has_feature("queue") {
+            for _ in 0..self.queue.len() {
+                self.send(Command::UnqueueNewest {});
+            }
+        }
+        self.queue.clear_messages();
     }
 
     /// Stop, from the button or Esc. Queued messages go back to the message box, oldest first:
@@ -588,7 +612,7 @@ impl MinerveView {
             ModalAction::Resume(id) => {
                 self.modal = None;
                 self.pending_shell.clear();
-                self.queue.clear_messages();
+                self.drop_queued_messages();
                 self.send(Command::ResumeSession { id });
             }
             ModalAction::SaveKeys {

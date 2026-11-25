@@ -1,6 +1,9 @@
-//! Messages sent while a turn runs: they wait here, oldest first, and all go together as one
-//! message when the turn ends, like the terminal app's queue. Esc takes the newest one back
-//! into the message box.
+//! Messages sent while a turn runs, oldest first, shown under the chat until the model gets them.
+//! Esc takes the newest one back into the message box.
+//!
+//! minerve with the `queue` feature keeps them too: it adds them to the running turn after its
+//! tool calls and says how many went (`forget_oldest_messages`). An older minerve refuses a
+//! message during a turn, so they all go together as one when the turn ends.
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -40,6 +43,11 @@ impl MessageQueue {
             merged.images.extend(message.images);
         }
         Some(merged)
+    }
+
+    /// Drops the `count` oldest messages: minerve sent them to the model.
+    pub fn forget_oldest_messages(&mut self, count: usize) {
+        self.messages.drain(..count.min(self.messages.len()));
     }
 
     /// The message Esc gives back to the message box.
@@ -104,6 +112,19 @@ mod tests {
         let merged = queue.take_all_messages_as_one().unwrap();
         let paths: Vec<_> = merged.images.iter().map(|(_, path)| path.clone()).collect();
         assert_eq!(paths, [PathBuf::from("a.png"), PathBuf::from("b.png")]);
+    }
+
+    #[test]
+    fn the_oldest_messages_are_forgotten_once_sent() {
+        let mut queue = MessageQueue::default();
+        for text in ["one", "two", "three"] {
+            queue.push_message(message(text));
+        }
+        queue.forget_oldest_messages(2);
+        assert_eq!(queue.list_texts(), ["three"]);
+        // More than are left: one was taken back as the turn took it.
+        queue.forget_oldest_messages(2);
+        assert!(queue.is_empty());
     }
 
     #[test]

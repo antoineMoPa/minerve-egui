@@ -109,3 +109,61 @@ fn a_stop_cancels_the_turn_and_no_queued_message_starts_another() {
     assert_eq!(list_submitted_texts(&sent), ["one"]);
     assert!(!view.working, "the stop left no turn running");
 }
+
+fn count_unqueues(sent: &Arc<Mutex<Vec<String>>>) -> usize {
+    sent.lock()
+        .unwrap()
+        .iter()
+        .filter(|line| line.contains(r#""type":"unqueue_newest""#))
+        .count()
+}
+
+/// With the `queue` feature, minerve adds a message to the running turn: it is sent at once.
+#[test]
+fn a_message_sent_while_a_turn_runs_goes_to_minerve_at_once_and_shows_until_the_model_gets_it() {
+    let ctx = egui::Context::default();
+    let (mut view, sent) = attach_view_to_recording_minerve(&ctx);
+    view.features.push("queue".to_string());
+    view.submit("one".to_string());
+    view.submit("two".to_string());
+    view.submit("three".to_string());
+    assert_eq!(list_submitted_texts(&sent), ["one", "two", "three"]);
+    assert_eq!(view.queue.list_texts(), ["two", "three"]);
+
+    view.apply(Event::QueuedSent { count: 1 });
+    assert_eq!(view.queue.list_texts(), ["three"]);
+
+    // Taken back, it leaves minerve's queue too.
+    assert!(view.take_back_newest_queued_message(&ctx));
+    assert_eq!(count_unqueues(&sent), 1);
+    assert_eq!(view.input.text, "three");
+
+    end_turn(&mut view);
+    assert_eq!(
+        list_submitted_texts(&sent).len(),
+        3,
+        "nothing is sent twice"
+    );
+    assert!(!view.working);
+}
+
+#[test]
+fn a_stop_takes_the_queued_messages_out_of_minerve_before_it_cancels() {
+    let ctx = egui::Context::default();
+    let (mut view, sent) = attach_view_to_recording_minerve(&ctx);
+    view.features.push("queue".to_string());
+    view.submit("one".to_string());
+    view.submit("two".to_string());
+    view.submit("three".to_string());
+
+    view.stop_running_turn(&ctx);
+    assert_eq!(view.input.text, "two\nthree");
+    let sent = sent.lock().unwrap();
+    let kinds: Vec<&str> = sent
+        .iter()
+        .rev()
+        .take(3)
+        .map(|line| line.split('"').nth(3).unwrap())
+        .collect();
+    assert_eq!(kinds, ["cancel", "unqueue_newest", "unqueue_newest"]);
+}

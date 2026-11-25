@@ -42,6 +42,10 @@ pub enum Event {
     Usage {
         summary: String,
     },
+    /// The `count` oldest queued messages went to the model (the `queue` feature).
+    QueuedSent {
+        count: usize,
+    },
     /// The boot clip (plain-text frames, blank = transparent) and the pro tips, answering `get_intro`.
     Intro {
         fps: u32,
@@ -132,6 +136,8 @@ pub enum Command {
     Cancel {},
     NewSession {},
     GetIntro {},
+    /// Takes the newest queued message out of minerve's queue (the `queue` feature).
+    UnqueueNewest {},
     Goal {
         goal: String,
     },
@@ -278,6 +284,14 @@ mod tests {
             r#"{"type":"submit","text":"hi"}"#
         );
         assert_eq!(line(&Command::Cancel {}), r#"{"type":"cancel"}"#);
+        assert_eq!(
+            line(&Command::UnqueueNewest {}),
+            r#"{"type":"unqueue_newest"}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<Event>(r#"{"type":"queued_sent","count":2}"#).unwrap(),
+            Event::QueuedSent { count: 2 }
+        );
         assert_eq!(line(&Command::NewSession {}), r#"{"type":"new_session"}"#);
         assert_eq!(
             line(&Command::Goal { goal: "x".into() }),
