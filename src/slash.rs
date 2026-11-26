@@ -5,8 +5,9 @@ use eframe::egui::{self, Align2, RichText};
 use crate::theme;
 
 /// Name and one-line description, in the order the terminal app lists them (`/help` is ours).
-pub const COMMANDS: [(&str, &str); 13] = [
+pub const COMMANDS: [(&str, &str); 14] = [
     ("/about", "describe Minerve"),
+    ("/version", "show the Minerve and minerve-gui versions"),
     ("/model", "switch models and providers"),
     (
         "/goal",

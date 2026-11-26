@@ -244,3 +244,17 @@ fn the_skip_button_shows_8s_into_a_tool_call_and_skips_it() {
     let shapes = render_view(&ctx, &mut view, vec![]);
     assert!(find_drawn_text(&shapes, "skip this step").is_none());
 }
+
+#[test]
+fn version_answers_at_once_while_a_turn_runs() {
+    let ctx = egui::Context::default();
+    let (mut view, sent) = attach_view_to_recording_minerve(&ctx);
+    view.minerve_version = "0.15.0".to_string();
+    view.submit("one".to_string());
+    view.submit("/version".to_string());
+    view.submit("/vers".to_string());
+    assert_eq!(list_submitted_texts(&sent), ["one"]);
+    assert!(view.queue.is_empty());
+    let expected = format!("minerve 0.15.0, minerve-gui {}", env!("CARGO_PKG_VERSION"));
+    assert_eq!(view.notices, [expected.clone(), expected]);
+}

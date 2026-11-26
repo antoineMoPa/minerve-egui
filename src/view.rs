@@ -102,6 +102,8 @@ pub struct MinerveView {
     skip_boot: bool,
     /// What this minerve told us in `hello`: commands it accepts beyond the original ones.
     features: Vec<String>,
+    /// The minerve version from `hello`; empty until minerve says hello.
+    minerve_version: String,
     chat: ChatView,
     input: InputBox,
     screenshot: Option<Screenshot>,
@@ -171,6 +173,7 @@ impl MinerveView {
             awaiting: None,
             skip_boot,
             features: Vec::new(),
+            minerve_version: String::new(),
             chat: ChatView::new(),
             input: InputBox::new(),
             screenshot,
@@ -286,6 +289,7 @@ impl MinerveView {
                     return;
                 }
                 self.features = features;
+                self.minerve_version = minerve_version;
                 self.status.clear();
                 if self.has_feature("intro") {
                     self.send(Command::GetIntro {});
@@ -405,6 +409,11 @@ impl MinerveView {
         // Enter on a partial `/word` runs the first command that matches, like the terminal app.
         let completed = crate::slash::resolve(trimmed);
         let trimmed = completed.unwrap_or(trimmed);
+        if trimmed == "/version" {
+            self.input.remember(trimmed);
+            self.notices.push(describe_versions(&self.minerve_version));
+            return;
+        }
         if self.backend.is_none() {
             let why = if self.starting.is_some() {
                 "minerve is still starting"
@@ -465,7 +474,7 @@ impl MinerveView {
         } else if trimmed == "/about" {
             self.notices.push("minerve-gui: a window for minerve. It runs `minerve --serve` and talks to it over the control socket.".to_string());
         } else if trimmed == "/help" {
-            self.notices.push("Available: /model /resume /goal <goal> /budget <usd> /apikeys /mcp /message-apps /clear /bootscreen /matrix /tetris /about /help.".to_string());
+            self.notices.push("Available: /model /resume /goal <goal> /budget <usd> /apikeys /mcp /message-apps /clear /bootscreen /matrix /tetris /about /version /help.".to_string());
         } else {
             self.notices.push(format!("{first_word} is not in minerve-gui yet. Type /help; the terminal app (minerve) has it."));
         }
@@ -940,3 +949,13 @@ impl MinerveView {
 #[cfg(test)]
 #[path = "view_tests.rs"]
 mod tests;
+
+/// The `/version` notice: minerve-gui's version, and minerve's once it said hello.
+fn describe_versions(minerve_version: &str) -> String {
+    let gui = env!("CARGO_PKG_VERSION");
+    if minerve_version.is_empty() {
+        format!("minerve-gui {gui}; minerve has not said hello yet")
+    } else {
+        format!("minerve {minerve_version}, minerve-gui {gui}")
+    }
+}
