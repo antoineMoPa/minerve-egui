@@ -256,5 +256,5 @@ fn version_answers_at_once_while_a_turn_runs() {
     assert_eq!(list_submitted_texts(&sent), ["one"]);
     assert!(view.queue.is_empty());
     let expected = format!("minerve 0.15.0, minerve-gui {}", env!("CARGO_PKG_VERSION"));
-    assert_eq!(view.notices, [expected.clone(), expected]);
+    assert_eq!(view.notices, [expected], "each submit replaces the notices");
 }
