@@ -73,6 +73,8 @@ pub struct MinerveView {
     /// The running model, for the pill in the message box. Empty until minerve said.
     model: String,
     working: bool,
+    /// The running tool call has lasted long enough to be skipped, see `Event::ToolCallSkippable`.
+    tool_call_skippable: bool,
     tools_expanded: bool,
     boot: Option<BootClip>,
     /// The clip as minerve sent it, kept so /bootscreen can replay it.
@@ -152,6 +154,7 @@ impl MinerveView {
             usage: String::new(),
             model: String::new(),
             working: false,
+            tool_call_skippable: false,
             tools_expanded: false,
             boot: None,
             intro: None,
@@ -315,6 +318,9 @@ impl MinerveView {
             }
             Event::State { state } => {
                 self.working = state == AgentState::Working;
+                if !self.working {
+                    self.tool_call_skippable = false;
+                }
                 if !self.working && self.has_feature("queue") {
                     // minerve ends a turn only once nothing waits: a message still here started
                     // a turn of its own, sent as that one ended.
@@ -324,6 +330,7 @@ impl MinerveView {
                 }
             }
             Event::QueuedSent { count } => self.queue.forget_oldest_messages(count),
+            Event::ToolCallSkippable { skippable } => self.tool_call_skippable = skippable,
             Event::Transcript { messages } => self.transcript = messages,
             Event::Status { status } => self.status = status,
             Event::Notice { notice } => self.notices.push(notice),
@@ -828,6 +835,7 @@ impl MinerveView {
             InputAction::Cancel => self.stop_running_turn(ctx),
             InputAction::None => {}
         }
+        let mut skip_clicked = false;
         egui::Panel::bottom(self.id.with("status"))
             .frame(panel(10, 2))
             .show_separator_line(false)
@@ -836,9 +844,9 @@ impl MinerveView {
                     let frame = (ctx.input(|input| input.time) * 8.0) as usize % SPINNER.len();
                     ctx.request_repaint_after(std::time::Duration::from_millis(125));
                     let status = if self.status.is_empty() {
-                        "working..."
+                        "working...".to_string()
                     } else {
-                        &self.status
+                        self.status.clone()
                     };
                     ui.horizontal(|ui| {
                         ui.label(
@@ -859,6 +867,14 @@ impl MinerveView {
                                 .font(theme::small())
                                 .color(theme::c().dark_gray),
                         );
+                        if self.tool_call_skippable
+                            && ui
+                                .small_button("skip this step")
+                                .on_hover_text("Stops this tool call; the turn goes on")
+                                .clicked()
+                        {
+                            skip_clicked = true;
+                        }
                     });
                 } else {
                     ui.label(
@@ -869,6 +885,10 @@ impl MinerveView {
                 }
             });
 
+        if skip_clicked {
+            self.tool_call_skippable = false;
+            self.send(Command::SkipToolCall {});
+        }
         egui::CentralPanel::default()
             .frame(no_frame)
             .show(ui, |ui| {

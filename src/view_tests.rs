@@ -167,3 +167,80 @@ fn a_stop_takes_the_queued_messages_out_of_minerve_before_it_cancels() {
         .collect();
     assert_eq!(kinds, ["cancel", "unqueue_newest", "unqueue_newest"]);
 }
+
+/// Where the text `label` was drawn in the frame's shapes, if it was.
+fn find_drawn_text(shapes: &[egui::epaint::ClippedShape], label: &str) -> Option<egui::Rect> {
+    shapes.iter().find_map(|clipped| match &clipped.shape {
+        egui::Shape::Text(text) if text.galley.job.text == label => {
+            Some(text.galley.rect.translate(text.pos.to_vec2()))
+        }
+        _ => None,
+    })
+}
+
+fn render_view(
+    ctx: &egui::Context,
+    view: &mut MinerveView,
+    events: Vec<egui::Event>,
+) -> Vec<egui::epaint::ClippedShape> {
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1000.0, 700.0),
+        )),
+        events,
+        ..Default::default()
+    };
+    let mut output = ctx.run_ui(input, |ui| view.show(ui));
+    output.textures_delta.clear();
+    output.shapes
+}
+
+#[test]
+fn the_skip_button_shows_8s_into_a_tool_call_and_skips_it() {
+    let ctx = egui::Context::default();
+    let (mut view, sent) = attach_view_to_recording_minerve(&ctx);
+    view.features.push("skip_tool_call".to_string());
+    view.submit("build it".to_string());
+
+    let shapes = render_view(&ctx, &mut view, vec![]);
+    assert!(find_drawn_text(&shapes, "skip this step").is_none());
+
+    view.apply(Event::ToolCallSkippable { skippable: true });
+    let shapes = render_view(&ctx, &mut view, vec![]);
+    let button = find_drawn_text(&shapes, "skip this step").expect("no skip button");
+    let at = button.center();
+    render_view(
+        &ctx,
+        &mut view,
+        vec![
+            egui::Event::PointerMoved(at),
+            egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            },
+        ],
+    );
+    render_view(
+        &ctx,
+        &mut view,
+        vec![egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }],
+    );
+
+    let skips = sent
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|line| line.contains(r#""type":"skip_tool_call""#))
+        .count();
+    assert_eq!(skips, 1);
+    let shapes = render_view(&ctx, &mut view, vec![]);
+    assert!(find_drawn_text(&shapes, "skip this step").is_none());
+}

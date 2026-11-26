@@ -42,6 +42,11 @@ pub enum Event {
     Usage {
         summary: String,
     },
+    /// The running tool call may be skipped with `skip_tool_call` (8s into it); false once it
+    /// ended (the `skip_tool_call` feature).
+    ToolCallSkippable {
+        skippable: bool,
+    },
     /// The `count` oldest queued messages went to the model (the `queue` feature).
     QueuedSent {
         count: usize,
@@ -134,6 +139,8 @@ pub enum Command {
         images: Vec<std::path::PathBuf>,
     },
     Cancel {},
+    /// Stops the running tool call only; the turn goes on (the `skip_tool_call` feature).
+    SkipToolCall {},
     NewSession {},
     GetIntro {},
     /// Takes the newest queued message out of minerve's queue (the `queue` feature).
@@ -250,6 +257,10 @@ mod tests {
             }
         );
         assert_eq!(
+            parse(r#"{"type":"tool_call_skippable","skippable":true}"#),
+            Event::ToolCallSkippable { skippable: true }
+        );
+        assert_eq!(
             parse(r#"{"type":"notice","notice":"n"}"#),
             Event::Notice { notice: "n".into() }
         );
@@ -284,6 +295,10 @@ mod tests {
             r#"{"type":"submit","text":"hi"}"#
         );
         assert_eq!(line(&Command::Cancel {}), r#"{"type":"cancel"}"#);
+        assert_eq!(
+            line(&Command::SkipToolCall {}),
+            r#"{"type":"skip_tool_call"}"#
+        );
         assert_eq!(
             line(&Command::UnqueueNewest {}),
             r#"{"type":"unqueue_newest"}"#
